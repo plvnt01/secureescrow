@@ -1,0 +1,50 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SecureEscrow — Choose Role</title>
+<link rel="stylesheet" href="app.css">
+</head><body>
+<header class="nav">
+  <div class="brand"><img src="logo.png" alt="" style="height:28px" onerror="this.style.display='none'"><strong>SecureEscrow</strong></div>
+  <div style="font-size:13px;color:#0b3a91;opacity:.85">Bank-grade encryption • Global coverage</div>
+</header>
+<section class="hero"><h1>Start your secure transaction</h1><p>Step 1 of 4 — Choose your role.</p></section>
+
+<main class="wrap">
+  <section class="card"><div class="card-body">
+    <h3 class="section-title">Choose Your Role</h3>
+    <label for="role">Role</label>
+    <select id="role" required>
+      <option value="">Select role</option>
+      <option>Buyer</option><option>Seller</option>
+    </select>
+    <div class="nav-row">
+      <button class="btn secondary" onclick="go('index.html')">← Back</button>
+      <button class="btn" onclick="saveAndNext()">Next →</button>
+    </div>
+  </div></section>
+</main>
+
+<footer class="footer"><div class="legal">© <span id="year"></span> SecureEscrow. All rights reserved • Global service.</div></footer>
+
+<script src="app.js"></script>
+<script>
+  prefill(['role']);
+  function saveAndNext(){
+    const role = document.getElementById('role').value.trim();
+    if(!role){ alert('Please select your role.'); return; }
+    setField('role', role);
+    go('personal.html');
+  }
+  document.getElementById('year').textContent=new Date().getFullYear();
+</script>
+</body></html>
+<!-- load shared helpers first -->
+<script src="app.js"></script>
+
+<!-- page-specific script AFTER app.js -->
+<script>
+  // (this block is different on each page)
+  // examples shown below for each page…
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+node_modules/
+EscrowRecords/
+.env
+npm-debug.log*
+escrow.db*

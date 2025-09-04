@@ -35,27 +35,15 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 
-// Serve static front-end files (so /role.html works on localhost & Render)
+// Serve static front-end files (so /index.html works on localhost & Render)
 app.use(express.static('public'));
 
 // Optional extra assets folder (if you have /static/* files)
 app.use('/static', express.static(path.join(__dirname, 'static')));
 
-// Health checks (Render uses /healthz by default)
+// Health checks
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/health',  (req, res) => res.json({ ok: true }));
-
-/* If you add express-rate-limit later, silence the proxy warning like this:
-   const rateLimit = require('express-rate-limit');
-   const limiter = rateLimit({
-     windowMs: 60 * 1000,
-     limit: 100,
-     standardHeaders: true,
-     legacyHeaders: false,
-     validate: { xForwardedForHeader: false } // because we trust the proxy
-   });
-   app.use(limiter);
-*/
 
 // ---------- helpers ----------
 async function ensureDataFile() {
@@ -109,6 +97,18 @@ function emailLayout(title, bodyHtml) {
   </div>`;
 }
 
+// Format the payment plan line for emails/invoice
+function paymentPlanSummary(o){
+  if (o.role !== 'Buyer') return 'Seller initiated transaction';
+  if (o.paymentPlan === 'down') {
+    const base = o.depositType === 'percent'
+      ? `${o.depositValue || '0'}%${o.totalPrice ? ` of ${money(o.totalPrice)}` : ''}`
+      : `${money(o.depositValue || 0)}`;
+    return `Buyer selected down payment — ${base}${o.totalPrice ? ` (total price ${money(o.totalPrice)})` : ''}`;
+  }
+  return 'Buyer selected full payment';
+}
+
 async function sendAdminNewOrderEmail(order) {
   const subject = `New Order ${order.orderId} — ${order.role} via ${order.source}`;
   const invoiceUrl = `${BASE_URL}/invoices/${order.orderId}?t=${order.releaseToken}`;
@@ -120,6 +120,7 @@ async function sendAdminNewOrderEmail(order) {
     <p><b>Role:</b> ${order.role} &bull; <b>Source:</b> ${order.source}</p>
     <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}<br/>
        <b>Status:</b> ${order.status}</p>
+    <p><b>Payment plan:</b> ${paymentPlanSummary(order)}${order.buyerNotes ? `<br/><b>Buyer notes:</b> ${order.buyerNotes}` : ''}</p>
     <p><a href="${invoiceUrl}">Open invoice</a></p>
   `);
   await transporter.sendMail({ from: FROM_EMAIL, to: ADMIN_EMAIL, subject, html });
@@ -134,6 +135,7 @@ async function sendBuyerInvoiceEmail(order) {
     <p><b>Order ID:</b> ${order.orderId}<br/>
        <b>Role:</b> ${order.role} &bull; <b>Source:</b> ${order.source}</p>
     <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}</p>
+    <p><b>Payment plan:</b> ${paymentPlanSummary(order)}${order.buyerNotes ? `<br/><b>Your notes:</b> ${order.buyerNotes}` : ''}</p>
     <p><a href="${invoiceUrl}">View invoice</a></p>
     <p><i>Note:</i> Funds are held securely and <u>you control the release</u> once you are satisfied with delivery.</p>
   `);
@@ -180,6 +182,14 @@ app.post('/submit', async (req, res) => {
     const orderId = genOrderId();
     const releaseToken = uuidv4(); // used for buyer-controlled release link
 
+    // NEW: capture buyer payment-plan fields (safe defaults for sellers)
+    const isBuyer = (b.role === 'Buyer');
+    const paymentPlan  = isBuyer ? (b.paymentPlan || 'full') : 'full';
+    const depositType  = isBuyer ? (b.depositType || 'percent') : 'percent';
+    const depositValue = isBuyer ? String(b.depositValue || '').trim() : '';
+    const totalPrice   = isBuyer ? String(b.totalPrice || '').trim() : '';
+    const buyerNotes   = isBuyer ? String(b.buyerNotes || '').trim() : '';
+
     const order = {
       orderId,
       releaseToken,
@@ -192,6 +202,12 @@ app.post('/submit', async (req, res) => {
       phone: b.phone,
       itemDetails: b.itemDetails || '',
       deliveryNotes: b.deliveryNotes || '',
+      // NEW: persist plan fields
+      paymentPlan,
+      depositType,
+      depositValue,
+      totalPrice,
+      buyerNotes,
       status: 'Awaiting buyer payment',
       escrowBalance: 0
     };
@@ -233,6 +249,14 @@ app.get('/invoices/:orderId', async (req,res) => {
          </form>`
       : `<div style="color:#64748b">Funds can be released after payment is confirmed.</div>`;
 
+    // Payment plan block
+    const planHtml = `
+      <h3 style="margin:14px 0 6px">Payment plan</h3>
+      <div style="background:#f9fbff;border:1px solid #e5e7eb;border-radius:10px;padding:10px">
+        <div>${paymentPlanSummary(order)}</div>
+        ${order.buyerNotes ? `<div style="margin-top:6px"><b>Buyer notes:</b> ${order.buyerNotes}</div>` : ''}
+      </div>`;
+
     res.setHeader('Content-Type','text/html');
     res.send(`
 <!doctype html>
@@ -252,7 +276,8 @@ app.get('/invoices/:orderId', async (req,res) => {
       <p><b>Role:</b> ${order.role} • <b>Source:</b> ${order.source}</p>
       <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}<br/>
          <b>Delivery notes:</b> ${order.deliveryNotes || '(none)'}</p>
-      <p><b>Status:</b> ${order.status}<br/>
+      ${planHtml}
+      <p style="margin-top:10px"><b>Status:</b> ${order.status}<br/>
          <b>Available escrow balance:</b> ${balanceText}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
       <h3>How to pay</h3>
@@ -282,7 +307,7 @@ app.post('/payments/:orderId/confirm', async (req,res)=>{
     const order = data.orders[idx];
 
     order.status = 'Buyer paid — awaiting buyer release';
-    order.escrowBalance = order.escrowBalance || 0; // you can set a number here if you track amounts later
+    order.escrowBalance = order.escrowBalance || 0; // set number if you track amounts later
     order.paidAt = new Date().toISOString();
 
     await saveOrders(data);

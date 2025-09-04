@@ -8,7 +8,11 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 
+// ---------- app ----------
 const app = express();
+
+// We’re behind Render/NGINX, so trust the proxy (fixes X-Forwarded-For issues)
+app.set('trust proxy', 1);
 
 // ---------- config ----------
 const PORT = process.env.PORT || 3000;
@@ -24,9 +28,34 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'SecureEscrow <no-reply@example.com
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 
 // ---------- middleware ----------
-app.use(cors({ origin: true })); // allow file:// and any origin
+// CORS: allow file:// and any origin (works for local file preview and deployed site)
+app.use(cors({ origin: true }));
+
+// Body parsers
 app.use(express.json({ limit: '1mb' }));
-app.use('/static', express.static(path.join(__dirname, 'static'))); // optional for assets
+app.use(express.urlencoded({ extended: false }));
+
+// Serve static front-end files (so /role.html works on localhost & Render)
+app.use(express.static('public'));
+
+// Optional extra assets folder (if you have /static/* files)
+app.use('/static', express.static(path.join(__dirname, 'static')));
+
+// Health checks (Render uses /healthz by default)
+app.get('/healthz', (req, res) => res.status(200).send('ok'));
+app.get('/health',  (req, res) => res.json({ ok: true }));
+
+/* If you add express-rate-limit later, silence the proxy warning like this:
+   const rateLimit = require('express-rate-limit');
+   const limiter = rateLimit({
+     windowMs: 60 * 1000,
+     limit: 100,
+     standardHeaders: true,
+     legacyHeaders: false,
+     validate: { xForwardedForHeader: false } // because we trust the proxy
+   });
+   app.use(limiter);
+*/
 
 // ---------- helpers ----------
 async function ensureDataFile() {

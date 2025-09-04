@@ -1,4 +1,4 @@
-// server.js
+// server.js (v2 with payment plan fields)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -28,17 +28,10 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'SecureEscrow <no-reply@example.com
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 
 // ---------- middleware ----------
-// CORS: allow file:// and any origin (works for local file preview and deployed site)
 app.use(cors({ origin: true }));
-
-// Body parsers
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
-
-// Serve static front-end files (so /index.html works on localhost & Render)
 app.use(express.static('public'));
-
-// Optional extra assets folder (if you have /static/* files)
 app.use('/static', express.static(path.join(__dirname, 'static')));
 
 // Health checks
@@ -56,7 +49,6 @@ async function ensureDataFile() {
     console.error('Failed ensuring data dir/file', e);
   }
 }
-
 async function loadOrders() {
   await ensureDataFile();
   const raw = await fsp.readFile(ORDERS_FILE, 'utf8');
@@ -68,25 +60,58 @@ async function saveOrders(data) {
 }
 
 function genOrderId() {
-  // short, copyable e.g., QJM-482193
   const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const D = '0123456789';
   let a=''; for (let i=0;i<3;i++) a += L[Math.floor(Math.random()*L.length)];
   let b=''; for (let i=0;i<6;i++) b += D[Math.floor(Math.random()*D.length)];
   return `${a}-${b}`;
 }
+function money(n){
+  const num = Number(n||0);
+  return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(isFinite(num)?num:0);
+}
+function toNum(x){
+  const n = Number(String(x||'').replace(/[^0-9.]/g,''));
+  return isFinite(n) ? n : 0;
+}
 
-function money(n){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0)); }
+/** Build a human summary of payment plan + compute deposit */
+function buildPaymentPlanSummary(o){
+  const plan = (o.paymentPlan || 'full').toLowerCase();
+  const t = toNum(o.totalPrice);
+  const type = (o.depositType || 'percent').toLowerCase();
+  const v = toNum(o.depositValue);
+
+  let calculatedDeposit = null;
+  let text = 'Seller initiated transaction';
+
+  if ((o.role || '').toLowerCase() === 'buyer') {
+    if (plan === 'full') {
+      text = 'Buyer selected full payment';
+    } else {
+      // down payment
+      if (type === 'percent') {
+        calculatedDeposit = t ? (t * (v/100)) : null;
+        text = t
+          ? `Buyer selected down payment — ${v}% of ${money(t)} (${money(calculatedDeposit)})`
+          : `Buyer selected down payment — ${v}% of total (enter total to compute amount)`;
+      } else {
+        calculatedDeposit = v || null;
+        text = `Buyer selected down payment — ${money(v)}`;
+      }
+    }
+  }
+  return { text, calculatedDeposit, totalPrice: t };
+}
 
 // ---------- mail transporter ----------
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: SMTP_PORT === 465, // true for 465, false for 587/25
+  secure: SMTP_PORT === 465,
   auth: { user: SMTP_USER, pass: SMTP_PASS }
 });
 
-// simple HTML layout for emails
 function emailLayout(title, bodyHtml) {
   return `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;line-height:1.4;color:#0f172a">
@@ -97,21 +122,10 @@ function emailLayout(title, bodyHtml) {
   </div>`;
 }
 
-// Format the payment plan line for emails/invoice
-function paymentPlanSummary(o){
-  if (o.role !== 'Buyer') return 'Seller initiated transaction';
-  if (o.paymentPlan === 'down') {
-    const base = o.depositType === 'percent'
-      ? `${o.depositValue || '0'}%${o.totalPrice ? ` of ${money(o.totalPrice)}` : ''}`
-      : `${money(o.depositValue || 0)}`;
-    return `Buyer selected down payment — ${base}${o.totalPrice ? ` (total price ${money(o.totalPrice)})` : ''}`;
-  }
-  return 'Buyer selected full payment';
-}
-
 async function sendAdminNewOrderEmail(order) {
-  const subject = `New Order ${order.orderId} — ${order.role} via ${order.source}`;
   const invoiceUrl = `${BASE_URL}/invoices/${order.orderId}?t=${order.releaseToken}`;
+  const plan = buildPaymentPlanSummary(order);
+  const subject = `New Order ${order.orderId} — ${order.role} via ${order.source}`;
   const html = emailLayout('New order received', `
     <p><b>Order ID:</b> ${order.orderId}</p>
     <p><b>Name:</b> ${order.firstName} ${order.lastName}<br/>
@@ -120,22 +134,25 @@ async function sendAdminNewOrderEmail(order) {
     <p><b>Role:</b> ${order.role} &bull; <b>Source:</b> ${order.source}</p>
     <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}<br/>
        <b>Status:</b> ${order.status}</p>
-    <p><b>Payment plan:</b> ${paymentPlanSummary(order)}${order.buyerNotes ? `<br/><b>Buyer notes:</b> ${order.buyerNotes}` : ''}</p>
+    <p><b>Payment plan:</b> ${plan.text}${order.buyerNotes ? `<br/><b>Buyer notes:</b> ${order.buyerNotes}` : ''}</p>
+    ${order.totalPrice ? `<p><b>Total price:</b> ${money(order.totalPrice)}</p>` : ''}
     <p><a href="${invoiceUrl}">Open invoice</a></p>
   `);
   await transporter.sendMail({ from: FROM_EMAIL, to: ADMIN_EMAIL, subject, html });
 }
 
 async function sendBuyerInvoiceEmail(order) {
-  const subject = `Your SecureEscrow Invoice — ${order.orderId}`;
   const invoiceUrl = `${BASE_URL}/invoices/${order.orderId}?t=${order.releaseToken}`;
+  const plan = buildPaymentPlanSummary(order);
+  const subject = `Your SecureEscrow Invoice — ${order.orderId}`;
   const html = emailLayout('Your invoice is ready', `
     <p>Hi ${order.firstName},</p>
     <p>Your escrow request has been created. Use the <b>Order ID</b> as the payment reference when you send funds.</p>
     <p><b>Order ID:</b> ${order.orderId}<br/>
        <b>Role:</b> ${order.role} &bull; <b>Source:</b> ${order.source}</p>
     <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}</p>
-    <p><b>Payment plan:</b> ${paymentPlanSummary(order)}${order.buyerNotes ? `<br/><b>Your notes:</b> ${order.buyerNotes}` : ''}</p>
+    <p><b>Payment plan:</b> ${plan.text}${order.buyerNotes ? `<br/><b>Your notes:</b> ${order.buyerNotes}` : ''}</p>
+    ${order.totalPrice ? `<p><b>Total price:</b> ${money(order.totalPrice)}</p>` : ''}
     <p><a href="${invoiceUrl}">View invoice</a></p>
     <p><i>Note:</i> Funds are held securely and <u>you control the release</u> once you are satisfied with delivery.</p>
   `);
@@ -149,7 +166,6 @@ async function sendPaymentConfirmedEmail(order) {
     <p>Status is now: <b>${order.status}</b></p>
     <p>Buyer may release funds at any time using the invoice page link.</p>
   `);
-  // notify admin and buyer
   await transporter.sendMail({ from: FROM_EMAIL, to: ADMIN_EMAIL, subject, html });
   await transporter.sendMail({ from: FROM_EMAIL, to: order.email, subject, html });
 }
@@ -166,9 +182,6 @@ async function sendReleasedEmail(order) {
 
 // ---------- routes ----------
 
-// health
-app.get('/health', (req,res)=> res.json({ ok:true }));
-
 // Create order + send emails
 app.post('/submit', async (req, res) => {
   try {
@@ -179,35 +192,44 @@ app.post('/submit', async (req, res) => {
         return res.status(400).json({ ok:false, error:`Missing field: ${k}` });
       }
     }
-    const orderId = genOrderId();
-    const releaseToken = uuidv4(); // used for buyer-controlled release link
 
-    // NEW: capture buyer payment-plan fields (safe defaults for sellers)
-    const isBuyer = (b.role === 'Buyer');
-    const paymentPlan  = isBuyer ? (b.paymentPlan || 'full') : 'full';
-    const depositType  = isBuyer ? (b.depositType || 'percent') : 'percent';
-    const depositValue = isBuyer ? String(b.depositValue || '').trim() : '';
-    const totalPrice   = isBuyer ? String(b.totalPrice || '').trim() : '';
-    const buyerNotes   = isBuyer ? String(b.buyerNotes || '').trim() : '';
+    // payment fields (optional; for Buyer)
+    const paymentPlan  = (b.paymentPlan || 'full').toLowerCase();        // 'full' | 'down'
+    const depositType  = (b.depositType || 'percent').toLowerCase();     // 'percent' | 'amount'
+    const depositValue = toNum(b.depositValue);
+    const totalPrice   = toNum(b.totalPrice);
+    const buyerNotes   = String(b.buyerNotes || '').trim();
+
+    const planInfo = buildPaymentPlanSummary({
+      role: b.role,
+      paymentPlan, depositType, depositValue, totalPrice, buyerNotes
+    });
+
+    const orderId = genOrderId();
+    const releaseToken = uuidv4();
 
     const order = {
       orderId,
       releaseToken,
       createdAt: new Date().toISOString(),
+
       role: b.role,
       source: b.source,
       firstName: b.firstName,
       lastName: b.lastName,
       email: b.email,
       phone: b.phone,
+
       itemDetails: b.itemDetails || '',
       deliveryNotes: b.deliveryNotes || '',
-      // NEW: persist plan fields
+
       paymentPlan,
       depositType,
       depositValue,
       totalPrice,
       buyerNotes,
+      calculatedDeposit: planInfo.calculatedDeposit, // may be null
+
       status: 'Awaiting buyer payment',
       escrowBalance: 0
     };
@@ -216,7 +238,6 @@ app.post('/submit', async (req, res) => {
     data.orders.unshift(order);
     await saveOrders(data);
 
-    // emails
     await Promise.all([
       sendAdminNewOrderEmail(order),
       sendBuyerInvoiceEmail(order)
@@ -237,25 +258,18 @@ app.post('/submit', async (req, res) => {
 app.get('/invoices/:orderId', async (req,res) => {
   try {
     const { orderId } = req.params;
-    const t = req.query.t; // release token (for release action)
+    const t = req.query.t;
     const data = await loadOrders();
     const order = data.orders.find(o => o.orderId === orderId);
     if (!order) return res.status(404).send('Invoice not found');
 
+    const plan = buildPaymentPlanSummary(order);
     const balanceText = order.escrowBalance > 0 ? `${money(order.escrowBalance)} (held)` : '$0.00 (pending)';
     const releaseButton = order.status.startsWith('Buyer paid')
       ? `<form method="POST" action="/payments/${order.orderId}/release?t=${encodeURIComponent(t||'')}">
            <button style="padding:10px 14px;border-radius:10px;border:1px solid #0ea371;background:#10b981;color:#fff;font-weight:800;cursor:pointer">Release funds</button>
          </form>`
       : `<div style="color:#64748b">Funds can be released after payment is confirmed.</div>`;
-
-    // Payment plan block
-    const planHtml = `
-      <h3 style="margin:14px 0 6px">Payment plan</h3>
-      <div style="background:#f9fbff;border:1px solid #e5e7eb;border-radius:10px;padding:10px">
-        <div>${paymentPlanSummary(order)}</div>
-        ${order.buyerNotes ? `<div style="margin-top:6px"><b>Buyer notes:</b> ${order.buyerNotes}</div>` : ''}
-      </div>`;
 
     res.setHeader('Content-Type','text/html');
     res.send(`
@@ -276,8 +290,11 @@ app.get('/invoices/:orderId', async (req,res) => {
       <p><b>Role:</b> ${order.role} • <b>Source:</b> ${order.source}</p>
       <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}<br/>
          <b>Delivery notes:</b> ${order.deliveryNotes || '(none)'}</p>
-      ${planHtml}
-      <p style="margin-top:10px"><b>Status:</b> ${order.status}<br/>
+
+      <p><b>Payment plan:</b> ${plan.text}${order.buyerNotes ? `<br/><b>Buyer notes:</b> ${order.buyerNotes}` : ''}</p>
+      ${order.totalPrice ? `<p><b>Total price:</b> ${money(order.totalPrice)}</p>` : ''}
+
+      <p><b>Status:</b> ${order.status}<br/>
          <b>Available escrow balance:</b> ${balanceText}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
       <h3>How to pay</h3>
@@ -307,7 +324,9 @@ app.post('/payments/:orderId/confirm', async (req,res)=>{
     const order = data.orders[idx];
 
     order.status = 'Buyer paid — awaiting buyer release';
-    order.escrowBalance = order.escrowBalance || 0; // set number if you track amounts later
+    // If you want to track a number, you can set:
+    // order.escrowBalance = order.calculatedDeposit || order.totalPrice || 0;
+    order.escrowBalance = order.escrowBalance || 0;
     order.paidAt = new Date().toISOString();
 
     await saveOrders(data);
@@ -319,7 +338,7 @@ app.post('/payments/:orderId/confirm', async (req,res)=>{
   }
 });
 
-// Buyer releases funds (requires token from email/invoice link)
+// Buyer releases funds (requires token)
 app.post('/payments/:orderId/release', async (req,res)=>{
   try{
     const { orderId } = req.params;
@@ -341,7 +360,6 @@ app.post('/payments/:orderId/release', async (req,res)=>{
     await saveOrders(data);
     await sendReleasedEmail(order);
 
-    // after release, show a small confirmation page
     res.setHeader('Content-Type','text/html');
     res.send(`
       <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;padding:20px">

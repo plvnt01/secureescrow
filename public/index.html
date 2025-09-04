@@ -46,6 +46,7 @@
   .btn.success{background:var(--accent);border-color:#0ea371}
   .btn[disabled]{opacity:.6;cursor:not-allowed}
   .btn:hover:not([disabled]){filter:brightness(1.05)}
+  .hint{font-size:13px;color:#64748b;margin-top:4px}
 
   .step{display:none}
   .step.active{display:block}
@@ -67,12 +68,7 @@
   .kbb-top { display:grid; gap:16px; grid-template-columns:280px 1fr; align-items:flex-start; }
   @media (max-width:900px){ .kbb-top{ grid-template-columns:1fr } }
 
-  .kbb-scorecard {
-    border:1px solid var(--line);
-    border-radius:12px;
-    padding:14px;
-    background:#fff;
-  }
+  .kbb-scorecard { border:1px solid var(--line); border-radius:12px; padding:14px; background:#fff; }
   .kbb-score-big { font-size:40px; font-weight:800; color:#0f1f4a; line-height:1 }
   .kbb-score-sub { color:#64748b; font-size:13px; margin-top:6px }
 
@@ -90,7 +86,6 @@
   .kbb-cat { display:flex; align-items:center; gap:10px; }
   .kbb-cat .lbl { width:110px; color:#334155; }
   .kbb-cat .num { margin-left:auto; font-weight:700; color:#0f1f4a }
-
   .kbb-list { margin-top:16px; border-top:1px solid var(--line); padding-top:12px }
   .kbb-item { display:grid; grid-template-columns:48px 1fr; gap:12px; padding:12px 0; border-bottom:1px solid #eef2f7 }
   .kbb-item:last-child{ border-bottom:none }
@@ -182,11 +177,50 @@
         </div>
       </div>
 
-      <!-- Step 3: Transaction Details -->
+      <!-- Step 3: Transaction Details + Payment Plan for Buyers -->
       <div class="step" id="step3">
         <h3 class="section-title">Transaction Details</h3>
         <label for="itemDetails">Item / Service</label>
         <textarea id="itemDetails" placeholder="Describe what’s being bought or sold…"></textarea>
+
+        <!-- Payment plan (shown when role === 'Buyer') -->
+        <div id="payWrap" style="display:none; margin-top:8px">
+          <div class="grid-2">
+            <div>
+              <label for="paymentPlan">Payment plan</label>
+              <select id="paymentPlan">
+                <option value="full">Full payment</option>
+                <option value="down">Down payment</option>
+              </select>
+              <div class="hint">Buyer chooses whether to deposit a portion now or pay in full.</div>
+            </div>
+            <div>
+              <label for="totalPrice">Total price (optional)</label>
+              <input id="totalPrice" type="number" inputmode="decimal" placeholder="e.g., 12000" />
+              <div class="hint">If provided, we’ll preview the deposit amount.</div>
+            </div>
+          </div>
+
+          <div id="downBox" style="display:none">
+            <div class="grid-2">
+              <div>
+                <label for="depositType">Down payment type</label>
+                <select id="depositType">
+                  <option value="percent">% of total</option>
+                  <option value="amount">Fixed amount</option>
+                </select>
+              </div>
+              <div>
+                <label for="depositValue">Down payment value</label>
+                <input id="depositValue" type="number" inputmode="decimal" placeholder="e.g., 20 or 2500" />
+              </div>
+            </div>
+            <div class="hint" id="depositPreview">Deposit preview: —</div>
+            <label for="buyerNotes">Notes to seller (optional)</label>
+            <textarea id="buyerNotes" placeholder="e.g., 20% to start; remaining on pickup."></textarea>
+          </div>
+        </div>
+
         <div class="nav-row">
           <button class="btn secondary" type="button" data-back>← Back</button>
           <button class="btn" type="button" data-next>Next →</button>
@@ -305,7 +339,18 @@ const API_BASE = location.hostname.includes('localhost')
   : 'https://secureescrow.onrender.com';
 
 /* ---------- wizard state ---------- */
-const S = { step:0, role:'', source:'', firstName:'', lastName:'', email:'', phone:'', itemDetails:'', orderId:'' };
+const S = {
+  step:0, role:'', source:'',
+  firstName:'', lastName:'', email:'', phone:'',
+  itemDetails:'',
+  // payment plan fields
+  paymentPlan:'full',    // 'full' | 'down'
+  depositType:'percent', // 'percent' | 'amount'
+  depositValue:'',       // number as string
+  totalPrice:'',         // optional number as string
+  buyerNotes:'',
+  orderId:''
+};
 
 /* ---------- elements ---------- */
 const steps = [...document.querySelectorAll('.step')];
@@ -314,6 +359,14 @@ const roleEl=document.getElementById('role'), sourceEl=document.getElementById('
 const firstNameEl=document.getElementById('firstName'), lastNameEl=document.getElementById('lastName');
 const emailEl=document.getElementById('email'), phoneEl=document.getElementById('phone');
 const itemDetailsEl=document.getElementById('itemDetails');
+const payWrap=document.getElementById('payWrap');
+const paymentPlanEl=document.getElementById('paymentPlan');
+const totalPriceEl=document.getElementById('totalPrice');
+const downBox=document.getElementById('downBox');
+const depositTypeEl=document.getElementById('depositType');
+const depositValueEl=document.getElementById('depositValue');
+const buyerNotesEl=document.getElementById('buyerNotes');
+const depositPreviewEl=document.getElementById('depositPreview');
 const orderSummary = document.getElementById('orderSummary');
 
 /* ---------- helpers ---------- */
@@ -332,13 +385,54 @@ document.body.addEventListener('click', (e)=>{
   if(e.target.matches('[data-back]')) showStep(S.step-1);
 });
 
+/* ---------- payment UI logic ---------- */
+function updatePaymentUI(){
+  // Show payment plan only for buyers
+  const isBuyer = roleEl.value === 'Buyer';
+  payWrap.style.display = isBuyer ? 'block' : 'none';
+
+  // Toggle down payment fields
+  const plan = paymentPlanEl.value;
+  downBox.style.display = plan === 'down' ? 'block' : 'none';
+
+  // Update preview
+  updateDepositPreview();
+}
+function calcDepositPreview(){
+  const plan = paymentPlanEl.value;
+  if (plan !== 'down') return null;
+
+  const t = Number(totalPriceEl.value || 0);
+  const type = depositTypeEl.value;
+  const v = Number(depositValueEl.value || 0);
+  if (type === 'percent') {
+    if (!v) return {text:'Deposit preview: —'};
+    const amt = t ? (t * (v/100)) : null;
+    return {text: t ? `Deposit preview: $${amt.toFixed(2)} (${v}% of $${t.toFixed(2)})` : `Deposit preview: ${v}% of total (enter total price to see amount)`};
+  } else {
+    if (!v) return {text:'Deposit preview: —'};
+    return {text:`Deposit preview: $${v.toFixed(2)}`};
+  }
+}
+function updateDepositPreview(){
+  const info = calcDepositPreview();
+  depositPreviewEl.textContent = info ? info.text : 'Deposit preview: —';
+}
+
+// listeners
+roleEl.addEventListener('change', updatePaymentUI);
+paymentPlanEl.addEventListener('change', updatePaymentUI);
+depositTypeEl.addEventListener('change', updateDepositPreview);
+depositValueEl.addEventListener('input', updateDepositPreview);
+totalPriceEl.addEventListener('input', updateDepositPreview);
+
 /* ---------- step validation ---------- */
 function validateStep(step){
   if(step===1){
     const r=roleEl.value.trim(), s=sourceEl.value.trim();
     if(!r){ toast('Please select your role.'); return false; }
     if(!s){ toast('Please choose the transaction source.'); return false; }
-    S.role=r; S.source=s; return true;
+    S.role=r; S.source=s; updatePaymentUI(); return true;
   }
   if(step===2){
     const f=firstNameEl.value.trim(), l=lastNameEl.value.trim(),
@@ -348,6 +442,23 @@ function validateStep(step){
   }
   if(step===3){
     S.itemDetails=itemDetailsEl.value.trim();
+    if (roleEl.value === 'Buyer') {
+      S.paymentPlan = paymentPlanEl.value;
+      S.totalPrice = totalPriceEl.value.trim();
+      if (S.paymentPlan === 'down') {
+        S.depositType = depositTypeEl.value;
+        S.depositValue = depositValueEl.value.trim();
+        S.buyerNotes = buyerNotesEl.value.trim();
+        if (!S.depositValue) { toast('Please enter the down payment value.'); return false; }
+      } else {
+        S.depositType = 'percent';
+        S.depositValue = '';
+        S.buyerNotes = '';
+      }
+    } else {
+      // seller: clear plan fields
+      S.paymentPlan='full'; S.depositType='percent'; S.depositValue=''; S.buyerNotes=''; S.totalPrice='';
+    }
     return true;
   }
   return true;
@@ -366,7 +477,13 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
         role:S.role, source:S.source,
         firstName:S.firstName, lastName:S.lastName,
         email:S.email, phone:S.phone,
-        itemDetails:S.itemDetails, deliveryNotes:''
+        itemDetails:S.itemDetails,
+        // payment fields included for your server
+        paymentPlan:S.paymentPlan,
+        depositType:S.depositType,
+        depositValue:S.depositValue,
+        totalPrice:S.totalPrice,
+        buyerNotes:S.buyerNotes
       })
     });
     const out = await res.json();
@@ -388,6 +505,13 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
 /* ---------- summary ---------- */
 function hydrateSummary(invoiceUrl){
   if(!orderSummary) return;
+
+  const planLine = (S.role==='Buyer')
+    ? (S.paymentPlan==='down'
+        ? `Buyer selected down payment — ${S.depositType==='percent'? (S.depositValue||'0')+'%': '$'+Number(S.depositValue||0).toFixed(2)}${S.totalPrice?` of total $${Number(S.totalPrice).toFixed(2)}`:''}`
+        : 'Buyer selected full payment')
+    : 'Seller initiated transaction';
+
   orderSummary.innerHTML = `
     <div style="background:#f9fbff;border:1px solid #e5e7eb;border-radius:12px;padding:12px">
       <div><b>Order ID:</b> ${S.orderId || '(pending)'}</div>
@@ -395,6 +519,8 @@ function hydrateSummary(invoiceUrl){
       <div><b>Name:</b> ${S.firstName} ${S.lastName} • <b>Email:</b> ${S.email}</div>
       <div><b>Phone:</b> ${S.phone}</div>
       <div><b>Item/Service:</b> ${S.itemDetails||'(none)'}</div>
+      <div><b>Payment plan:</b> ${planLine}</div>
+      ${S.buyerNotes? `<div><b>Buyer notes:</b> ${S.buyerNotes}</div>`:''}
       ${invoiceUrl? `<div style="margin-top:8px"><a href="${invoiceUrl}" target="_blank" rel="noopener">Open invoice</a></div>`:''}
     </div>`;
 }
@@ -556,6 +682,8 @@ function hookupForm(){
 renderKbbHeader();
 renderKbbList();
 hookupForm();
+updatePaymentUI();
+document.getElementById('yr').textContent = new Date().getFullYear();
 </script>
 </body>
 </html>

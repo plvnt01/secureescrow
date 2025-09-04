@@ -289,15 +289,76 @@ document.body.addEventListener('click', (e)=>{
 });
 
 <script>
-/* put this near your other top-level consts */
-const API_BASE = 'https://secureescrow.onrender.com/'; // change to your Render URL when you deploy
+/* ---------- API base: local vs Render ---------- */
+const API_BASE = location.hostname.includes('localhost')
+  ? 'http://localhost:3000'
+  : 'https://secureescrow.onrender.com';
 
-/* replace the old submit handler with this */
+/* ---------- state & element refs ---------- */
+const S = {
+  step: 0,
+  role: '', source: '',
+  firstName: '', lastName: '', email: '', phone: '',
+  itemDetails: '',
+  orderId: ''
+};
+
+const steps = [...document.querySelectorAll('.step')];
+const dots  = [...document.querySelectorAll('#dots .dot')];
+
+const roleEl       = document.getElementById('role');
+const sourceEl     = document.getElementById('source');
+const firstNameEl  = document.getElementById('firstName');
+const lastNameEl   = document.getElementById('lastName');
+const emailEl      = document.getElementById('email');
+const phoneEl      = document.getElementById('phone');
+const itemDetailsEl= document.getElementById('itemDetails');
+const orderSummary = document.getElementById('orderSummary');
+
+/* ---------- ui helpers ---------- */
+function showStep(n){
+  S.step = Math.max(0, Math.min(5, n));
+  steps.forEach((el,i)=> el.classList.toggle('active', i===S.step));
+  dots.forEach((d,i)=> d.classList.toggle('active', i < Math.min(4, S.step===0?1:S.step)));
+}
+function toast(msg){ try{ alert(msg); }catch(_){} }
+
+document.getElementById('startBtn').addEventListener('click', ()=> showStep(1));
+document.getElementById('startLink').addEventListener('click', e=>{ e.preventDefault(); showStep(1); });
+
+document.body.addEventListener('click', (e)=>{
+  if(e.target.matches('[data-next]')){ if(!validateStep(S.step)) return; showStep(S.step+1); }
+  if(e.target.matches('[data-back]')) showStep(S.step-1);
+});
+
+/* ---------- validation per step ---------- */
+function validateStep(step){
+  if(step===1){
+    const r = roleEl.value.trim();
+    const s = sourceEl.value.trim();
+    if(!r){ toast('Please select your role.'); return false; }
+    if(!s){ toast('Please choose the transaction source.'); return false; }
+    S.role=r; S.source=s; return true;
+  }
+  if(step===2){
+    const f=firstNameEl.value.trim(), l=lastNameEl.value.trim(),
+          e=emailEl.value.trim(), p=phoneEl.value.trim();
+    if(!f || !l || !e || !p){ toast('Please complete your name, email, and phone.'); return false; }
+    S.firstName=f; S.lastName=l; S.email=e; S.phone=p; return true;
+  }
+  if(step===3){
+    S.itemDetails = itemDetailsEl.value.trim();
+    return true;
+  }
+  return true;
+}
+
+/* ---------- submit handler (calls your backend) ---------- */
 document.getElementById('submitBtn').addEventListener('click', async () => {
-  // Only submit from Step 4 (Confirmation)
-  if (typeof S === 'undefined' || S.step !== 4) return;
+  if(S.step!==4){ return; }
+  if(!validateStep(3)){ showStep(3); return; }
 
-  try {
+  try{
     const res = await fetch(`${API_BASE}/submit`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -309,50 +370,52 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
         email: S.email,
         phone: S.phone,
         itemDetails: S.itemDetails,
-        deliveryNotes: S.deliveryNotes
+        deliveryNotes: '' // optional
       })
     });
-
     const out = await res.json();
-    if (!out.ok) throw new Error(out.error || 'Submit failed');
+    if(!out.ok) throw new Error(out.error || 'Submit failed');
 
-    // Use server-issued Order ID so invoice + emails match backend
     S.orderId = out.orderId;
-
-    // Move to summary
     showStep(5);
-    if (typeof hydrateSummary === 'function') hydrateSummary();
-
-    // Optional: show the invoice link right on the summary card
-    if (out.invoiceUrl) {
-      const os = document.getElementById('orderSummary');
-      const link = document.createElement('p');
-      link.style.marginTop = '8px';
-      link.innerHTML = `<a href="${out.invoiceUrl}" target="_blank" rel="noopener">Open invoice</a>`;
-      os.appendChild(link);
-    }
-
-    if (typeof toast === 'function') {
-      toast('Submitted. Invoice emailed to the customer; notification sent to you.');
-    }
-  } catch (err) {
+    hydrateSummary(out.invoiceUrl);
+    toast('Submitted. Invoice emailed to the customer; notification sent to you.');
+  }catch(err){
     console.error(err);
-
-    // Fallback: still show a local Order ID so the user isn’t stuck
-    if (!S.orderId && typeof genOrderId === 'function') {
-      S.orderId = genOrderId();
-    }
+    // graceful fallback: still show summary with a local ID
+    if(!S.orderId) S.orderId = genLocalOrderId();
     showStep(5);
-    if (typeof hydrateSummary === 'function') hydrateSummary();
-    if (typeof toast === 'function') {
-      toast('Could not reach email service. Saved locally.');
-    }
+    hydrateSummary(null);
+    toast('Could not reach email service. Saved locally.');
   }
 });
-</script>
+
+/* ---------- summary ---------- */
+function hydrateSummary(invoiceUrl){
+  if(!orderSummary) return;
+  orderSummary.innerHTML = `
+    <div style="background:#f9fbff;border:1px solid #e5e7eb;border-radius:12px;padding:12px">
+      <div><b>Order ID:</b> ${S.orderId || '(pending)'}</div>
+      <div><b>Role:</b> ${S.role} • <b>Source:</b> ${S.source||'(n/a)'}</div>
+      <div><b>Name:</b> ${S.firstName} ${S.lastName} • <b>Email:</b> ${S.email}</div>
+      <div><b>Phone:</b> ${S.phone}</div>
+      <div><b>Item/Service:</b> ${S.itemDetails||'(none)'}</div>
+      ${invoiceUrl ? `<div style="margin-top:8px"><a href="${invoiceUrl}" target="_blank" rel="noopener">Open invoice</a></div>` : ''}
+    </div>`;
+}
+
+/* ---------- local fallback order id ---------- */
+function genLocalOrderId(){
+  const L='ABCDEFGHJKLMNPQRSTUVWXYZ', D='0123456789';
+  let a=''; for(let i=0;i<3;i++) a+=L[Math.floor(Math.random()*L.length)];
+  let b=''; for(let i=0;i<6;i++) b+=D[Math.floor(Math.random()*D.length)];
+  return `${a}-${b}`;
+}
+
+/* ---------- footer year ---------- */
 document.getElementById('yr').textContent = new Date().getFullYear();
 
-// ===== Reviews with comments =====
+/* ========================= Reviews (unchanged) ========================= */
 const DEFAULT_REVIEWS = [
   { name:"Maya Chen (Austin, TX)", role:"Buyer", rating:5, text:"Clear updates at each step. Everything felt professional and secure.", verified:true },
   { name:"Michael Alvarez (Tampa, FL)", role:"Seller", rating:5, text:"Smooth and reliable service. Great peace of mind.", verified:true },
@@ -360,87 +423,15 @@ const DEFAULT_REVIEWS = [
   { name:"Shannon Gaskins (Cleveland, OH)", role:"Buyer", rating:5, text:"Funds were only released after I confirmed delivery.", verified:true },
   { name:"William Roy (Denver, CO)", role:"Seller", rating:5, text:"Fast setup and clear process.", verified:true }
 ];
-
-function loadReviews(){
-  try{ const raw = localStorage.getItem('SECURE_ESCROW_REVIEWS'); if(raw){ return JSON.parse(raw); } }catch(e){}
-  return DEFAULT_REVIEWS.slice();
-}
-function saveReviews(list){ try{ localStorage.setItem('SECURE_ESCROW_REVIEWS', JSON.stringify(list)); }catch(e){} }
-
+function loadReviews(){ try{ const raw=localStorage.getItem('SECURE_ESCROW_REVIEWS'); if(raw) return JSON.parse(raw);}catch(_){} return DEFAULT_REVIEWS.slice(); }
+function saveReviews(list){ try{ localStorage.setItem('SECURE_ESCROW_REVIEWS', JSON.stringify(list)); }catch(_){} }
 let REVIEWS = loadReviews();
-
 function stars(n){ return '★★★★★'.slice(0,n) + '☆☆☆☆☆'.slice(0,5-n); }
-
-function calcStats(){
-  const counts=[0,0,0,0,0,0]; // index by rating 0..5
-  REVIEWS.forEach(r=>{ counts[r.rating] = (counts[r.rating]||0)+1; });
-  const total = REVIEWS.length || 0;
-  const sum = REVIEWS.reduce((a,r)=>a+r.rating,0);
-  const avg = total? (sum/total):0;
-  return {counts, total, avg};
-}
-
-function renderStats(){
-  const {counts,total,avg} = calcStats();
-  document.getElementById('avgScore').textContent = avg.toFixed(1);
-  document.getElementById('reviewCount').textContent = total===1? 'Based on 1 review' : `Based on ${total} reviews`;
-  const max = Math.max(1, ...counts.slice(1));
-  for(let r=1;r<=5;r++){
-    const pct = total? Math.round((counts[r]||0)/total*100) : 0;
-    const el = document.getElementById('bar'+r); if(el) el.style.width = pct+'%';
-  }
-}
-
-function renderReviews(){
-  const root=document.getElementById('reviews'); root.innerHTML='';
-  const show=window.innerWidth>820?3:1;
-  const start=Math.floor(Date.now()/5000)%Math.max(1,REVIEWS.length);
-  for(let i=0;i<show;i++){
-    const r=REVIEWS[(start+i)%REVIEWS.length];
-    const el=document.createElement('div'); el.className='review';
-    const verified = r.verified? 'Verified customer' : 'Submitted review';
-    el.innerHTML=`<div class="stars" aria-label="${r.rating} out of 5">${stars(r.rating)}</div>
-                  <div class="meta" style="margin-top:6px">${r.text}</div>
-                  <div class="name">${r.name}</div>
-                  <div class="meta">${r.role} • ${verified}</div>`;
-    root.appendChild(el);
-  }
-}
-
-function hookupForm(){
-  const form = document.getElementById('reviewForm');
-  const nameEl = document.getElementById('revName');
-  const roleEl = document.getElementById('revRole');
-  const textEl = document.getElementById('revText');
-  const starWrap = document.getElementById('revStars');
-  let rating = 5;
-
-  starWrap.addEventListener('click', (e)=>{
-    const v = e.target && e.target.dataset && Number(e.target.dataset.v);
-    if(!v) return; rating=v; [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i+1===v))); });
-  starWrap.addEventListener('keydown', (e)=>{
-    if(e.key==='ArrowLeft'||e.key==='ArrowDown'){ rating=Math.max(1,rating-1); [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i+1===rating))); }
-    if(e.key==='ArrowRight'||e.key==='ArrowUp'){ rating=Math.min(5,rating+1); [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i+1===rating))); }
-  });
-
-  form.addEventListener('submit', (e)=>{
-    e.preventDefault();
-    const name=nameEl.value.trim(); const text=textEl.value.trim();
-    if(!name || !text){ alert('Please enter your name/city and a short comment.'); return; }
-    const role=roleEl.value;
-    const review={ name, role, rating, text, verified:false };
-    REVIEWS.unshift(review); // newest first
-    saveReviews(REVIEWS);
-    nameEl.value=''; textEl.value=''; rating=5; [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i===4)));
-    renderStats(); renderReviews();
-    window.scrollTo({top: document.getElementById('reviews-section').offsetTop - 20, behavior:'smooth'});
-  });
-}
-
-renderStats();
-renderReviews();
-hookupForm();
-window.addEventListener('resize', ()=>{ renderReviews(); });
+function calcStats(){ const counts=[0,0,0,0,0,0]; REVIEWS.forEach(r=>{ counts[r.rating]=(counts[r.rating]||0)+1; }); const total=REVIEWS.length||0; const sum=REVIEWS.reduce((a,r)=>a+r.rating,0); const avg=total?(sum/total):0; return {counts,total,avg}; }
+function renderStats(){ const {counts,total,avg}=calcStats(); document.getElementById('avgScore').textContent=avg.toFixed(1); document.getElementById('reviewCount').textContent = total===1? 'Based on 1 review' : `Based on ${total} reviews`; for(let r=1;r<=5;r++){ const pct=total?Math.round((counts[r]||0)/total*100):0; const el=document.getElementById('bar'+r); if(el) el.style.width=pct+'%'; } }
+function renderReviews(){ const root=document.getElementById('reviews'); root.innerHTML=''; const show=window.innerWidth>820?3:1; const start=Math.floor(Date.now()/5000)%Math.max(1,REVIEWS.length); for(let i=0;i<show;i++){ const r=REVIEWS[(start+i)%REVIEWS.length]; const el=document.createElement('div'); el.className='review'; const verified=r.verified?'Verified customer':'Submitted review'; el.innerHTML=`<div class="stars" aria-label="${r.rating} out of 5">${stars(r.rating)}</div><div class="meta" style="margin-top:6px">${r.text}</div><div class="name">${r.name}</div><div class="meta">${r.role} • ${verified}</div>`; root.appendChild(el);} }
+function hookupForm(){ const form=document.getElementById('reviewForm'); const nameEl=document.getElementById('revName'); const roleEl=document.getElementById('revRole'); const textEl=document.getElementById('revText'); const starWrap=document.getElementById('revStars'); let rating=5; starWrap.addEventListener('click',e=>{ const v=e.target&&e.target.dataset&&Number(e.target.dataset.v); if(!v) return; rating=v; [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i+1===v))); }); starWrap.addEventListener('keydown',e=>{ if(e.key==='ArrowLeft'||e.key==='ArrowDown'){ rating=Math.max(1,rating-1); [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i+1===rating))); } if(e.key==='ArrowRight'||e.key==='ArrowUp'){ rating=Math.min(5,rating+1); [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i+1===rating))); } }); form.addEventListener('submit',e=>{ e.preventDefault(); const name=nameEl.value.trim(); const text=textEl.value.trim(); if(!name||!text){ alert('Please enter your name/city and a short comment.'); return; } const role=roleEl.value; const review={name,role,rating,text,verified:false}; REVIEWS.unshift(review); saveReviews(REVIEWS); nameEl.value=''; textEl.value=''; rating=5; [...starWrap.children].forEach((s,i)=> s.setAttribute('aria-checked', String(i===4))); renderStats(); renderReviews(); window.scrollTo({top: document.getElementById('reviews-section').offsetTop - 20, behavior:'smooth'}); }); }
+renderStats(); renderReviews(); hookupForm(); window.addEventListener('resize', ()=> renderReviews());
 </script>
 </body>
 </html>

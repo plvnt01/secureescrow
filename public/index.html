@@ -288,8 +288,68 @@ document.body.addEventListener('click', (e)=>{
   if(e.target.matches('[data-back]')) showStep(currentStep-1);
 });
 
-document.getElementById('submitBtn').addEventListener('click', ()=> showStep(5));
+<script>
+/* put this near your other top-level consts */
+const API_BASE = 'http://localhost:3000'; // change to your Render URL when you deploy
 
+/* replace the old submit handler with this */
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  // Only submit from Step 4 (Confirmation)
+  if (typeof S === 'undefined' || S.step !== 4) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/submit`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        role: S.role,
+        source: S.source,
+        firstName: S.firstName,
+        lastName: S.lastName,
+        email: S.email,
+        phone: S.phone,
+        itemDetails: S.itemDetails,
+        deliveryNotes: S.deliveryNotes
+      })
+    });
+
+    const out = await res.json();
+    if (!out.ok) throw new Error(out.error || 'Submit failed');
+
+    // Use server-issued Order ID so invoice + emails match backend
+    S.orderId = out.orderId;
+
+    // Move to summary
+    showStep(5);
+    if (typeof hydrateSummary === 'function') hydrateSummary();
+
+    // Optional: show the invoice link right on the summary card
+    if (out.invoiceUrl) {
+      const os = document.getElementById('orderSummary');
+      const link = document.createElement('p');
+      link.style.marginTop = '8px';
+      link.innerHTML = `<a href="${out.invoiceUrl}" target="_blank" rel="noopener">Open invoice</a>`;
+      os.appendChild(link);
+    }
+
+    if (typeof toast === 'function') {
+      toast('Submitted. Invoice emailed to the customer; notification sent to you.');
+    }
+  } catch (err) {
+    console.error(err);
+
+    // Fallback: still show a local Order ID so the user isn’t stuck
+    if (!S.orderId && typeof genOrderId === 'function') {
+      S.orderId = genOrderId();
+    }
+    showStep(5);
+    if (typeof hydrateSummary === 'function') hydrateSummary();
+    if (typeof toast === 'function') {
+      toast('Could not reach email service. Saved locally.');
+    }
+  }
+});
+</script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 
 // ===== Reviews with comments =====

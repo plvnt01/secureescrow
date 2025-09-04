@@ -1,7 +1,7 @@
 {
   "name": "secureescrow",
   "version": "1.0.0",
-  "description": "SecureEscrow simple wizard + email + PDF invoice",
+  "description": "SecureEscrow wizard + Packages + Milestones + PDF invoice + Email",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

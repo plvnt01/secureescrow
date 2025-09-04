@@ -1,264 +1,308 @@
-// server.js — CommonJS
+// server.js
+require('dotenv').config();
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const helmet = require('helmet');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const path = require('path');
 const nodemailer = require('nodemailer');
-const PDFDocument = require('pdfkit');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
+
+// ---------- config ----------
 const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const ORDERS_FILE = path.join(DATA_DIR, 'orders.json');
 
-/* ---------- security & basics ---------- */
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'SecureEscrow <no-reply@example.com>';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 
-/* ---------- static files ---------- */
-app.use(express.static(path.join(__dirname, 'public')));
+// ---------- middleware ----------
+app.use(cors({ origin: true })); // allow file:// and any origin
+app.use(express.json({ limit: '1mb' }));
+app.use('/static', express.static(path.join(__dirname, 'static'))); // optional for assets
 
-/* ---------- storage folder ---------- */
-const SAVE_FOLDER = path.join(__dirname, 'EscrowRecords');
-if (!fs.existsSync(SAVE_FOLDER)) fs.mkdirSync(SAVE_FOLDER, { recursive: true });
-
-/* ---------- email transport (Gmail app password) ---------- */
-const COMPANY_EMAIL  = process.env.COMPANY_EMAIL || "escrowservicecopyright@gmail.com";
-// Accept either COMPANY_EMAIL_PASS or EMAIL_PASSWORD env var
-const COMPANY_EMAIL_PASS = process.env.COMPANY_EMAIL_PASS || process.env.EMAIL_PASSWORD || "";
-
-let transporter = null;
-if (COMPANY_EMAIL_PASS) {
-  transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: { user: COMPANY_EMAIL, pass: COMPANY_EMAIL_PASS },
-  });
+// ---------- helpers ----------
+async function ensureDataFile() {
+  try {
+    await fsp.mkdir(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(ORDERS_FILE)) {
+      await fsp.writeFile(ORDERS_FILE, JSON.stringify({ orders: [] }, null, 2));
+    }
+  } catch (e) {
+    console.error('Failed ensuring data dir/file', e);
+  }
 }
 
-/* ---------- helpers ---------- */
-const currency = (n) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
-    .format(Number(n || 0));
-
-const stamp = () => {
-  const d = new Date();
-  const p = (x) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-};
-
-const today = () => new Date().toLocaleDateString('en-US');
-
-/* ---------- PDF invoice generator ---------- */
-function createInvoicePDF(data, outPath) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    const stream = fs.createWriteStream(outPath);
-    doc.pipe(stream);
-
-    // Header
-    const logoPath = path.join(__dirname, 'public', 'logo.png');
-    if (fs.existsSync(logoPath)) doc.image(logoPath, 50, 40, { width: 64 });
-    doc.fillColor('#0b3a91').fontSize(22).text('SecureEscrow', 120, 50, { align: 'left' });
-    doc.moveDown();
-
-    // Invoice title
-    doc.fillColor('#111').fontSize(18).text('INVOICE', 50, 120);
-
-    // Meta
-    doc.fontSize(10).fillColor('#333');
-    doc.text(`Invoice #: ${data.invoiceNo}`, 50, 145);
-    doc.text(`Date    : ${today()}`, 50, 160);
-
-    // Bill to
-    doc.moveDown(0.5);
-    doc.fontSize(12).fillColor('#111').text('Bill To', 50, 185);
-    doc.fontSize(10).fillColor('#333');
-    doc.text(`${data.firstName || ''} ${data.lastName || ''}`);
-    if (data.email) doc.text(data.email);
-    if (data.phone) doc.text(data.phone);
-
-    // Divider
-    doc.moveTo(50, 220).lineTo(545, 220).strokeColor('#ddd').stroke();
-
-    // Summary
-    doc.fillColor('#111').fontSize(12).text('Summary', 50, 240);
-    doc.fontSize(10).fillColor('#333');
-    doc.text(`Role          : ${data.role || '-'}`, 50, 260);
-    doc.text(`Platform      : ${data.platform || '-'}`, 50, 275);
-    if (data.packageName) {
-      doc.text(`Package       : ${data.packageName} (${currency(data.packagePrice)})`, 50, 290);
-    }
-    doc.text(`Payment Plan  : ${data.paymentPlan === 'milestone' ? 'Milestone / Down payment' : 'Full payment'}`, 50, 305);
-    if (data.paymentPlan === 'milestone') {
-      const dv = data.downType === 'percent' ? `${data.downValue}%` : currency(data.downValue);
-      doc.text(`Down Payment  : ${dv}${data.milestoneNotes ? ' | ' + data.milestoneNotes : ''}`, 50, 320);
-    }
-    doc.text(`Payment Method: ${data.paymentMethod || '-'}`, 50, 335);
-
-    // Item / service
-    const desc = (data.itemDetails || '').trim() || '—';
-    doc.fillColor('#111').fontSize(12).text('Item / Service', 50, 360);
-    doc.fontSize(10).fillColor('#333').text(desc, 50, 378, { width: 495 });
-
-    // Amounts box
-    const y0 = doc.y + 16;
-    doc.roundedRect(50, y0, 495, 110, 6).strokeColor('#ddd').stroke();
-    doc.fontSize(11).fillColor('#111').text('Totals', 60, y0 + 10);
-    doc.fontSize(10).fillColor('#333');
-    doc.text(`Subtotal: ${currency(data.amount)}`, 60, y0 + 30);
-    if (data.downPayment > 0) doc.text(`Down Payment Due Now: ${currency(data.downPayment)}`, 60, y0 + 46);
-    doc.text(`Balance: ${currency(data.balanceDue)}`, 60, y0 + 62);
-
-    // Refund policy
-    if (data.refundPolicyNote || typeof data.refundAgreement !== 'undefined') {
-      doc.moveDown(2);
-      doc.fontSize(12).fillColor('#111').text('Refund Policy');
-      doc.fontSize(10).fillColor('#333');
-      if (data.refundPolicyNote) doc.text(data.refundPolicyNote, { width: 495 });
-      doc.text(`Acknowledged by customer: ${data.refundAgreement ? 'Yes' : 'No'}`);
-    }
-
-    // Footer
-    doc.moveDown(1.5);
-    doc.fillColor('#777').fontSize(9).text(
-      'Thank you for using SecureEscrow. Funds are held securely until both sides confirm.',
-      { align: 'center' }
-    );
-
-    doc.end();
-    stream.on('finish', resolve);
-    stream.on('error', reject);
-  });
+async function loadOrders() {
+  await ensureDataFile();
+  const raw = await fsp.readFile(ORDERS_FILE, 'utf8');
+  return JSON.parse(raw);
+}
+async function saveOrders(data) {
+  await ensureDataFile();
+  await fsp.writeFile(ORDERS_FILE, JSON.stringify(data, null, 2));
 }
 
-/* ---------- submit endpoint ---------- */
+function genOrderId() {
+  // short, copyable e.g., QJM-482193
+  const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const D = '0123456789';
+  let a=''; for (let i=0;i<3;i++) a += L[Math.floor(Math.random()*L.length)];
+  let b=''; for (let i=0;i<6;i++) b += D[Math.floor(Math.random()*D.length)];
+  return `${a}-${b}`;
+}
+
+function money(n){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0)); }
+
+// ---------- mail transporter ----------
+const transporter = nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465, // true for 465, false for 587/25
+  auth: { user: SMTP_USER, pass: SMTP_PASS }
+});
+
+// simple HTML layout for emails
+function emailLayout(title, bodyHtml) {
+  return `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;line-height:1.4;color:#0f172a">
+    <h2 style="margin:0 0 10px;color:#0a4e86">${title}</h2>
+    <div>${bodyHtml}</div>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+    <div style="font-size:12px;color:#64748b">SecureEscrow (U.S.) • Bank-grade encryption • Dispute support</div>
+  </div>`;
+}
+
+async function sendAdminNewOrderEmail(order) {
+  const subject = `New Order ${order.orderId} — ${order.role} via ${order.source}`;
+  const invoiceUrl = `${BASE_URL}/invoices/${order.orderId}?t=${order.releaseToken}`;
+  const html = emailLayout('New order received', `
+    <p><b>Order ID:</b> ${order.orderId}</p>
+    <p><b>Name:</b> ${order.firstName} ${order.lastName}<br/>
+       <b>Email:</b> ${order.email}<br/>
+       <b>Phone:</b> ${order.phone}</p>
+    <p><b>Role:</b> ${order.role} &bull; <b>Source:</b> ${order.source}</p>
+    <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}<br/>
+       <b>Status:</b> ${order.status}</p>
+    <p><a href="${invoiceUrl}">Open invoice</a></p>
+  `);
+  await transporter.sendMail({ from: FROM_EMAIL, to: ADMIN_EMAIL, subject, html });
+}
+
+async function sendBuyerInvoiceEmail(order) {
+  const subject = `Your SecureEscrow Invoice — ${order.orderId}`;
+  const invoiceUrl = `${BASE_URL}/invoices/${order.orderId}?t=${order.releaseToken}`;
+  const html = emailLayout('Your invoice is ready', `
+    <p>Hi ${order.firstName},</p>
+    <p>Your escrow request has been created. Use the <b>Order ID</b> as the payment reference when you send funds.</p>
+    <p><b>Order ID:</b> ${order.orderId}<br/>
+       <b>Role:</b> ${order.role} &bull; <b>Source:</b> ${order.source}</p>
+    <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}</p>
+    <p><a href="${invoiceUrl}">View invoice</a></p>
+    <p><i>Note:</i> Funds are held securely and <u>you control the release</u> once you are satisfied with delivery.</p>
+  `);
+  await transporter.sendMail({ from: FROM_EMAIL, to: order.email, subject, html });
+}
+
+async function sendPaymentConfirmedEmail(order) {
+  const subject = `Payment received — ${order.orderId}`;
+  const html = emailLayout('Payment received', `
+    <p>Payment has been confirmed for <b>${order.orderId}</b>.</p>
+    <p>Status is now: <b>${order.status}</b></p>
+    <p>Buyer may release funds at any time using the invoice page link.</p>
+  `);
+  // notify admin and buyer
+  await transporter.sendMail({ from: FROM_EMAIL, to: ADMIN_EMAIL, subject, html });
+  await transporter.sendMail({ from: FROM_EMAIL, to: order.email, subject, html });
+}
+
+async function sendReleasedEmail(order) {
+  const subject = `Funds released — ${order.orderId}`;
+  const html = emailLayout('Funds released', `
+    <p>Funds have been released for <b>${order.orderId}</b>.</p>
+    <p>Status is now: <b>${order.status}</b></p>
+  `);
+  await transporter.sendMail({ from: FROM_EMAIL, to: ADMIN_EMAIL, subject, html });
+  await transporter.sendMail({ from: FROM_EMAIL, to: order.email, subject, html });
+}
+
+// ---------- routes ----------
+
+// health
+app.get('/health', (req,res)=> res.json({ ok:true }));
+
+// Create order + send emails
 app.post('/submit', async (req, res) => {
   try {
-    const raw = req.body || {};
-
-    // Normalize + derived
-    const amount        = Math.max(0, Number(raw.amount || 0));
-    const packageName   = (raw.packageName || '').toString();
-    const packagePrice  = Math.max(0, Number(raw.packagePrice || 0));
-    const platform      = (raw.platform || '').toString();
-
-    const paymentPlan   = (raw.paymentPlan || 'full').toLowerCase();   // full | milestone
-    const downType      = (raw.downType || 'percent').toLowerCase();   // percent | amount
-    const downValue     = Number(raw.downValue || 0);
-    const milestoneNotes= (raw.milestoneNotes || '').toString();
-
-    const refundAgreement = !!raw.refundAgreement || raw.refundAgreement === 'on';
-    const refundPolicyNote= (raw.refundPolicyNote || '').toString().trim();
-
-    // Down payment calc
-    let downPayment = 0;
-    if (paymentPlan === 'milestone') {
-      if (downType === 'percent') {
-        const pct = Math.min(100, Math.max(0, downValue));
-        downPayment = +(amount * (pct / 100)).toFixed(2);
-      } else {
-        downPayment = Math.max(0, Math.min(amount, downValue));
+    const b = req.body || {};
+    const required = ['role','source','firstName','lastName','email','phone'];
+    for (const k of required) {
+      if (!b[k] || String(b[k]).trim()==='') {
+        return res.status(400).json({ ok:false, error:`Missing field: ${k}` });
       }
     }
-    const balanceDue = +(amount - downPayment).toFixed(2);
+    const orderId = genOrderId();
+    const releaseToken = uuidv4(); // used for buyer-controlled release link
 
-    const data = {
-      invoiceNo: `INV-${stamp()}`,
+    const order = {
+      orderId,
+      releaseToken,
       createdAt: new Date().toISOString(),
-
-      role: raw.role || '',
-      firstName: raw.firstName || '',
-      lastName: raw.lastName || '',
-      email: raw.email || '',
-      phone: raw.phone || '',
-      platform,
-
-      packageName,
-      packagePrice,
-
-      itemDetails: raw.itemDetails || '',
-      amount,
-      paymentMethod: raw.paymentMethod || '',
-
-      paymentPlan,
-      downType,
-      downValue,
-      milestoneNotes,
-      downPayment,
-      balanceDue,
-
-      refundAgreement,
-      refundPolicyNote
+      role: b.role,
+      source: b.source,
+      firstName: b.firstName,
+      lastName: b.lastName,
+      email: b.email,
+      phone: b.phone,
+      itemDetails: b.itemDetails || '',
+      deliveryNotes: b.deliveryNotes || '',
+      status: 'Awaiting buyer payment',
+      escrowBalance: 0
     };
 
-    // Save JSON
-    const jsonPath = path.join(SAVE_FOLDER, `${data.invoiceNo}.json`);
-    fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2));
+    const data = await loadOrders();
+    data.orders.unshift(order);
+    await saveOrders(data);
 
-    // Create PDF
-    const pdfPath = path.join(SAVE_FOLDER, `${data.invoiceNo}.pdf`);
-    await createInvoicePDF(data, pdfPath);
+    // emails
+    await Promise.all([
+      sendAdminNewOrderEmail(order),
+      sendBuyerInvoiceEmail(order)
+    ]);
 
-    // Email customer + you (optional)
-    if (transporter) {
-      const attachments = fs.existsSync(pdfPath)
-        ? [{ filename: `${data.invoiceNo}.pdf`, path: pdfPath }]
-        : [];
-
-      // customer
-      if (data.email) {
-        await transporter.sendMail({
-          from: `"SecureEscrow" <${COMPANY_EMAIL}>`,
-          to: data.email,
-          subject: `Invoice ${data.invoiceNo} • SecureEscrow`,
-          text:
-`Hi ${data.firstName || ''},
-
-Thanks for your escrow request. Your invoice is attached.
-
-Invoice: ${data.invoiceNo}
-Platform: ${data.platform || '-'}
-Package : ${data.packageName || '-'} (${currency(data.packagePrice || 0)})
-Amount  : ${currency(data.amount)}
-Plan    : ${data.paymentPlan === 'milestone' ? 'Milestone / Down payment' : 'Full payment'}
-Down    : ${currency(data.downPayment)}
-Balance : ${currency(data.balanceDue)}
-
-Refund policy acknowledged: ${data.refundAgreement ? 'Yes' : 'No'}
-
-We’ll follow up with payment instructions based on your selected method: ${data.paymentMethod || '-'}.
-
-— SecureEscrow`,
-          attachments
-        });
-      }
-
-      // you
-      await transporter.sendMail({
-        from: `"SecureEscrow" <${COMPANY_EMAIL}>`,
-        to: COMPANY_EMAIL,
-        subject: `New Escrow Request ${data.invoiceNo} — ${data.firstName || ''} ${data.lastName || ''}`,
-        text: JSON.stringify(data, null, 2),
-        attachments
-      });
-    }
-
-    res.json({ ok: true, invoiceNo: data.invoiceNo });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: 'Failed to save or email invoice' });
+    return res.json({
+      ok:true,
+      orderId,
+      invoiceUrl: `${BASE_URL}/invoices/${orderId}?t=${releaseToken}`
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok:false, error:'Server error' });
   }
 });
 
-/* ---------- health + SPA fallback ---------- */
-app.get('/health', (req, res) => res.json({ ok: true }));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Simple HTML invoice page
+app.get('/invoices/:orderId', async (req,res) => {
+  try {
+    const { orderId } = req.params;
+    const t = req.query.t; // release token (for release action)
+    const data = await loadOrders();
+    const order = data.orders.find(o => o.orderId === orderId);
+    if (!order) return res.status(404).send('Invoice not found');
 
-app.listen(PORT, () => {
-  console.log(`SecureEscrow server running at http://localhost:${PORT}`);
+    const balanceText = order.escrowBalance > 0 ? `${money(order.escrowBalance)} (held)` : '$0.00 (pending)';
+    const releaseButton = order.status.startsWith('Buyer paid')
+      ? `<form method="POST" action="/payments/${order.orderId}/release?t=${encodeURIComponent(t||'')}">
+           <button style="padding:10px 14px;border-radius:10px;border:1px solid #0ea371;background:#10b981;color:#fff;font-weight:800;cursor:pointer">Release funds</button>
+         </form>`
+      : `<div style="color:#64748b">Funds can be released after payment is confirmed.</div>`;
+
+    res.setHeader('Content-Type','text/html');
+    res.send(`
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Invoice ${order.orderId} — SecureEscrow</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+</head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;background:#f8fafc;margin:0">
+  <div style="max-width:720px;margin:20px auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 26px rgba(2,8,20,.12);">
+    <div style="padding:18px 16px;border-bottom:1px solid #e5e7eb;color:#0b3a91;font-weight:800">SecureEscrow — Invoice</div>
+    <div style="padding:16px">
+      <h2 style="margin:6px 0;color:#153a8a">Order ${order.orderId}</h2>
+      <p><b>Name:</b> ${order.firstName} ${order.lastName}<br/>
+         <b>Email:</b> ${order.email} • <b>Phone:</b> ${order.phone}</p>
+      <p><b>Role:</b> ${order.role} • <b>Source:</b> ${order.source}</p>
+      <p><b>Item/Service:</b> ${order.itemDetails || '(none)'}<br/>
+         <b>Delivery notes:</b> ${order.deliveryNotes || '(none)'}</p>
+      <p><b>Status:</b> ${order.status}<br/>
+         <b>Available escrow balance:</b> ${balanceText}</p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+      <h3>How to pay</h3>
+      <ol>
+        <li>Send funds using your agreed method. Use <b>Order ID ${order.orderId}</b> as the payment reference.</li>
+        <li>Email your receipt/confirmation to ${ADMIN_EMAIL} (or reply to your invoice email).</li>
+      </ol>
+      <div style="margin-top:16px">${releaseButton}</div>
+      <p style="margin-top:16px;color:#64748b">Buyer-controlled release • United States escrow • Bank-grade encryption</p>
+    </div>
+  </div>
+</body>
+</html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Server error');
+  }
+});
+
+// Mark payment confirmed (admin action)
+app.post('/payments/:orderId/confirm', async (req,res)=>{
+  try{
+    const { orderId } = req.params;
+    const data = await loadOrders();
+    const idx = data.orders.findIndex(o => o.orderId === orderId);
+    if (idx === -1) return res.status(404).json({ ok:false, error:'Order not found' });
+    const order = data.orders[idx];
+
+    order.status = 'Buyer paid — awaiting buyer release';
+    order.escrowBalance = order.escrowBalance || 0; // you can set a number here if you track amounts later
+    order.paidAt = new Date().toISOString();
+
+    await saveOrders(data);
+    await sendPaymentConfirmedEmail(order);
+    return res.json({ ok:true, order });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ ok:false, error:'Server error' });
+  }
+});
+
+// Buyer releases funds (requires token from email/invoice link)
+app.post('/payments/:orderId/release', async (req,res)=>{
+  try{
+    const { orderId } = req.params;
+    const t = req.query.t;
+    const data = await loadOrders();
+    const idx = data.orders.findIndex(o => o.orderId === orderId);
+    if (idx === -1) return res.status(404).send('Order not found');
+
+    const order = data.orders[idx];
+    if (!t || t !== order.releaseToken) {
+      return res.status(403).send('Invalid or missing release token');
+    }
+    if (!order.status.startsWith('Buyer paid')) {
+      return res.status(400).send('Payment not confirmed yet');
+    }
+
+    order.status = 'Funds released to seller';
+    order.releasedAt = new Date().toISOString();
+    await saveOrders(data);
+    await sendReleasedEmail(order);
+
+    // after release, show a small confirmation page
+    res.setHeader('Content-Type','text/html');
+    res.send(`
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;padding:20px">
+        <h2>Funds released</h2>
+        <p>Order <b>${order.orderId}</b> marked as released. Thank you.</p>
+        <p><a href="${BASE_URL}/invoices/${order.orderId}?t=${encodeURIComponent(order.releaseToken)}">Back to invoice</a></p>
+      </div>
+    `);
+  }catch(e){
+    console.error(e);
+    res.status(500).send('Server error');
+  }
+});
+
+app.listen(PORT, async () => {
+  await ensureDataFile();
+  console.log(`SecureEscrow backend running on ${BASE_URL}`);
 });

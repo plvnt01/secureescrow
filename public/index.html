@@ -137,18 +137,58 @@
       </div>
 
       <!-- Step 3 (Transaction) -->
-      <div class="step" id="step3">
-        <h3 class="section-title">Transaction Details</h3>
-        <label for="itemDetails">Item / Service</label>
-        <textarea id="itemDetails" placeholder="Describe what’s being bought or sold…"></textarea>
-        <label for="amount">Amount (USD)</label>
-        <input id="amount" type="number" inputmode="decimal" placeholder="800" required>
-        <div class="nav-row">
-          <button class="btn secondary" type="button" data-back>← Back</button>
-          <button class="btn" type="button" data-next>Next →</button>
-        </div>
-      </div>
+      <!-- Step 3: Transaction (with milestone / down payment) -->
+<div class="step" id="step3">
+  <h3 class="section-title">Transaction Details</h3>
 
+  <label for="itemDetails">Item / Service</label>
+  <textarea id="itemDetails" placeholder="Describe what’s being bought or sold…"></textarea>
+
+  <div class="grid-2">
+    <div>
+      <label for="amount">Total Amount (USD)</label>
+      <input id="amount" type="number" inputmode="decimal" placeholder="800" required>
+    </div>
+    <div>
+      <label for="paymentPlan">Payment Plan</label>
+      <select id="paymentPlan">
+        <option value="full">Full payment</option>
+        <option value="milestone">Milestone / Down payment</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Hidden until "milestone" is chosen -->
+  <div id="downBox" style="display:none; margin-top:8px">
+    <div class="grid-2">
+      <div>
+        <label for="downType">Down Payment Type</label>
+        <select id="downType">
+          <option value="percent">% of total</option>
+          <option value="amount">Fixed amount</option>
+        </select>
+      </div>
+      <div>
+        <label for="downValue">Down Payment Value</label>
+        <input id="downValue" type="number" inputmode="decimal" placeholder="30">
+      </div>
+    </div>
+
+    <label for="milestoneNotes">Milestone Notes (optional)</label>
+    <textarea id="milestoneNotes" placeholder="e.g., 30% to start, 70% on delivery (due Sep 30)."></textarea>
+
+    <div style="margin-top:10px;color:#475569;font-size:14px;background:#f1f5f9;border:1px solid #e5e7eb;padding:10px;border-radius:8px">
+      <b>Refund policy:</b> Down payments remain refundable by the buyer until both sides confirm the milestone,
+      or by the deadline stated in the milestone notes. After approval, funds are released to the seller.
+    </div>
+  </div>
+
+  <div class="nav-row">
+    <button class="btn secondary" type="button" data-back>← Back</button>
+    <button class="btn" type="button" data-next>Next →</button>
+  </div>
+</div>
+      
       <!-- Step 4 (Payment) -->
       <div class="step" id="step4">
         <h3 class="section-title">Payment Method</h3>
@@ -215,77 +255,138 @@
 </footer>
 
 <script>
-/* ===== State ===== */
+/* ===== Minimal state ===== */
 const S = {
   step: 0,
   role: "", firstName: "", lastName: "", email: "", phone: "",
-  itemDetails: "", amount: "", paymentMethod: ""
+  itemDetails: "", amount: "", paymentMethod: "",
+  paymentPlan: "full", downType: "percent", downValue: "", milestoneNotes: ""
 };
 
-/* ===== Elements ===== */
+/* ===== Helpers & elements ===== */
+const $ = id => document.getElementById(id);
 const steps = [...document.querySelectorAll('.step')];
 const dots  = [...document.querySelectorAll('#dots .dot')];
 
-const $ = id => document.getElementById(id);
-const roleEl = $('role'), firstNameEl=$('firstName'), lastNameEl=$('lastName'),
-      emailEl=$('email'), phoneEl=$('phone'), itemDetailsEl=$('itemDetails'),
-      amountEl=$('amount'), paymentMethodEl=$('paymentMethod');
+const roleEl            = $('role');
+const firstNameEl       = $('firstName');
+const lastNameEl        = $('lastName');
+const emailEl           = $('email');
+const phoneEl           = $('phone');
+const itemDetailsEl     = $('itemDetails');
+const amountEl          = $('amount');
+const paymentMethodEl   = $('paymentMethod');
 
+const paymentPlanEl     = $('paymentPlan');
+const downBoxEl         = $('downBox');
+const downTypeEl        = $('downType');
+const downValueEl       = $('downValue');
+const milestoneNotesEl  = $('milestoneNotes');
+
+/* ===== Step switching ===== */
 function showStep(n){
   S.step = n;
   steps.forEach((el,i)=> el.classList.toggle('active', i===n));
   dots.forEach((d,i)=> d.classList.toggle('active', i < Math.min(4, n===0?1:n)));
 }
-$('startBtn').addEventListener('click', e => { e.preventDefault(); showStep(1); });
+
+$('startBtn')?.addEventListener('click', e => { e.preventDefault(); showStep(1); });
 
 document.body.addEventListener('click', (e)=>{
-  if(e.target.matches('[data-next]')){ if(!validateStep(S.step)) return; showStep(Math.min(4, S.step+1)); }
-  if(e.target.matches('[data-back]')){ showStep(Math.max(0, S.step-1)); }
+  if(e.target.matches('[data-next]')){
+    if(!validateStep(S.step)) return;
+    showStep(Math.min(4, S.step+1));
+  }
+  if(e.target.matches('[data-back]')){
+    showStep(Math.max(0, S.step-1));
+  }
 });
 
+/* ===== Field logic ===== */
+paymentPlanEl?.addEventListener('change', () => {
+  const useMilestone = paymentPlanEl.value === 'milestone';
+  downBoxEl.style.display = useMilestone ? 'block' : 'none';
+});
+
+/* ===== Validation per step ===== */
 function validateStep(n){
+  // Step 1: role
   if(n===1){
-    const v = roleEl.value.trim(); if(!v){ alert('Please select your role.'); return false; }
+    const v = roleEl.value.trim();
+    if(!v){ alert('Please select your role.'); return false; }
     S.role = v; return true;
   }
+
+  // Step 2: personal
   if(n===2){
-    const f = firstNameEl.value.trim(), l = lastNameEl.value.trim(),
-          e = emailEl.value.trim(), p = phoneEl.value.trim();
+    const f = firstNameEl.value.trim();
+    const l = lastNameEl.value.trim();
+    const e = emailEl.value.trim();
+    const p = phoneEl.value.trim();
     if(!f || !l || !e || !p){ alert('Please complete all fields.'); return false; }
     S.firstName=f; S.lastName=l; S.email=e; S.phone=p; return true;
   }
+
+  // Step 3: transaction
   if(n===3){
-    const a = amountEl.value.trim(); if(!a){ alert('Please enter the amount.'); return false; }
-    S.itemDetails = itemDetailsEl.value.trim(); S.amount = a; return true;
+    const a = amountEl.value.trim();
+    if(!a){ alert('Please enter the total amount.'); return false; }
+    S.itemDetails   = itemDetailsEl.value.trim();
+    S.amount        = a;
+    S.paymentPlan   = paymentPlanEl.value;
+    if(S.paymentPlan === 'milestone'){
+      S.downType       = downTypeEl.value;
+      S.downValue      = (downValueEl.value || '').trim();
+      S.milestoneNotes = (milestoneNotesEl.value || '').trim();
+      if(!S.downValue){ alert('Please set the down payment value.'); return false; }
+    } else {
+      S.downType = 'percent'; S.downValue = ''; S.milestoneNotes = '';
+    }
+    return true;
   }
+
+  // Step 4: payment method
   if(n===4){
-    const m = paymentMethodEl.value.trim(); if(!m){ alert('Please choose a payment method.'); return false; }
+    const m = paymentMethodEl.value.trim();
+    if(!m){ alert('Please choose a payment method.'); return false; }
     S.paymentMethod = m; return true;
   }
+
   return true;
 }
 
-$('submitBtn').addEventListener('click', async ()=>{
+/* ===== Submit to backend ===== */
+$('submitBtn')?.addEventListener('click', async ()=>{
   if(!validateStep(4)) return;
   try{
-    const res = await fetch('/submit',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(S) });
+    const res = await fetch('/submit',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(S)
+    });
     const out = await res.json();
-    if(out.ok){ showStep(5); } else alert('Error: '+(out.error||'Unknown'));
-  }catch(err){ alert('Network error: '+err.message); }
+    if(out.ok){
+      showStep(5);
+    } else {
+      alert('Error: '+(out.error||'Unknown'));
+    }
+  }catch(err){
+    alert('Network error: '+err.message);
+  }
 });
 
-$('backHome').addEventListener('click', e=>{ e.preventDefault(); showStep(0); });
-
-/* ===== Reviews ===== */
+/* ===== Reviews carousel ===== */
 const REVIEWS = [
   { name:"Maya Chen", text:"Clear updates at each step. Everything felt professional and secure from start to finish." },
   { name:"Mike Alvarez", text:"Perfect for milestone payments. Fair fees, simple flow, and excellent support." },
-  { name:"Burns Martinez", text:"I was new to escrow but the process was easy. Both parties felt protected." },
+  { name:"Aisha Bello", text:"I was new to escrow but the process was easy. Both parties felt protected." },
   { name:"Shannon Gaskins", text:"Flawless process. Funds released only after both sides confirmed delivery." },
   { name:"Williams Roy", text:"Fast setup. Funds were safe until I confirmed receipt. Five stars." }
 ];
+
 function renderReviews(){
-  const root = $('reviews'); root.innerHTML='';
+  const root = $('reviews'); if(!root) return;
+  root.innerHTML = '';
   const show = window.innerWidth > 820 ? 3 : 1;
   const start = Math.floor(Date.now()/5000) % REVIEWS.length;
   for(let i=0;i<show;i++){
@@ -299,9 +400,11 @@ function renderReviews(){
     root.appendChild(el);
   }
 }
-renderReviews(); setInterval(renderReviews, 5000); window.addEventListener('resize', renderReviews);
+renderReviews();
+setInterval(renderReviews, 5000);
+window.addEventListener('resize', renderReviews);
 
-/* Year */
+/* ===== Footer year ===== */
 $('yr').textContent = new Date().getFullYear();
 </script>
 </body>

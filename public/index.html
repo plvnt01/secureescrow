@@ -5,69 +5,59 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>SecureEscrow — Secure Payments Made Simple</title>
 <style>
-  :root{
-    --blue1:#0d6efd; --blue2:#0a58ca;
-    --ink:#0f172a; --muted:#475569;
-    --accent:#10b981; --card:#ffffff; --line:#e5e7eb; --ring:#60a5fa;
-  }
+  :root{--blue1:#0d6efd;--blue2:#0a58ca;--ink:#0f172a;--muted:#475569;--accent:#10b981;--card:#ffffff;--line:#e5e7eb;--ring:#60a5fa;}
   *,*::before,*::after{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;color:var(--ink);background:#f8fafc}
 
-  /* Top banner */
+  .nav{max-width:1100px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand img{height:28px}
+  .brand strong{font-size:18px;color:#083b92;letter-spacing:.2px}
+
   .hero{background:linear-gradient(180deg,var(--blue1),var(--blue2));color:#fff;padding:24px 16px 68px;text-align:center}
   .hero h1{margin:6px 0 8px;line-height:1.2;font-size:28px}
   .hero p{margin:0;color:#eaf2ff;opacity:.96}
 
-  /* Container */
   .wrap{max-width:1100px;margin:-40px auto 24px;padding:0 16px}
-
-  /* Card */
   .card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 14px 30px rgba(2,8,20,.18);overflow:hidden}
   .card-body{padding:16px}
   .section-title{margin:8px 0 12px;text-align:center;color:#153a8a;font-weight:800}
 
-  /* Progress dots */
   .progress{display:flex;gap:6px;justify-content:center;margin:6px 0 10px}
   .dot{width:8px;height:8px;border-radius:999px;background:#cbd5e1;opacity:.8}
   .dot.active{background:var(--accent);opacity:1}
 
-  /* Fields */
   label{display:block;margin:10px 0 6px;font-weight:600;color:#334155}
   input,select,textarea{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:16px;outline:none;transition:border-color .15s,box-shadow .15s}
   input:focus,select:focus,textarea:focus{border-color:var(--ring);box-shadow:0 0 0 3px rgba(96,165,250,.25)}
   textarea{resize:vertical;min-height:96px}
   .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media (max-width:820px){.grid-3{grid-template-columns:1fr}}
   @media (max-width:520px){.grid-2{grid-template-columns:1fr}}
 
-  /* Buttons */
   .nav-row{display:flex;gap:12px;margin-top:16px}
   .btn{flex:1 1 0;padding:12px 14px;border-radius:10px;border:1px solid #dbe3f0;background:#1d4ed8;color:#fff;font-weight:800;font-size:16px;letter-spacing:.2px;cursor:pointer;text-decoration:none;text-align:center}
   .btn.secondary{background:#f1f5f9;color:#0f172a}
   .btn.success{background:var(--accent);border-color:#0ea371}
   .btn:hover{filter:brightness(1.05)}
 
-  /* Steps */
-  .step{display:none}
-  .step.active{display:block}
+  .step{display:none}.step.active{display:block}
 
-  /* Highlights row */
   .highlights{display:grid;gap:12px;grid-template-columns:repeat(3,1fr);margin:12px 16px 16px}
   .hl{display:flex;align-items:center;gap:10px;background:#f1f5f9;border:1px solid #e5e7eb;padding:12px;border-radius:12px;color:#0f172a}
   .hl .icon{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:#e7f8f2;color:#059669;font-weight:800}
   @media (max-width:820px){.highlights{grid-template-columns:1fr}}
 
-  /* Reviews */
   .reviews{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 26px rgba(2,8,20,.12);margin:16px 0;padding:16px}
   .reviews h3{margin:4px 0 10px;text-align:center;color:#133b82}
   .carousel{display:grid;gap:12px;grid-template-columns:repeat(3,1fr)}
   @media(max-width:820px){.carousel{grid-template-columns:1fr}}
   .review{background:#f9fbff;border:1px solid #e5e7eb;border-radius:12px;padding:14px}
   .stars{color:#f59e0b;letter-spacing:2px;font-size:18px}
-  .name{font-weight:800;margin-top:8px}
-  .meta{color:#64748b;font-size:13px}
+  .name{font-weight:800;margin-top:8px}.meta{color:#64748b;font-size:13px}
 
-  /* Footer */
   .footer{background:linear-gradient(180deg,#0a4e86,#083c65);color:#cfe6ff;padding:28px 16px;border-top:1px solid rgba(255,255,255,.12);margin-top:20px}
   .footer-grid{max-width:1100px;margin:0 auto;display:grid;gap:24px;grid-template-columns:repeat(3,1fr)}
   .footer h4{font-size:14px;letter-spacing:.3px;font-weight:800;color:#e9f3ff;margin:0 0 8px}
@@ -77,12 +67,19 @@
   @media (max-width:820px){.footer-grid{grid-template-columns:1fr}}
   .legal{max-width:1100px;margin:10px auto 0;padding:0 16px;color:#cfe6ff;font-size:12px;opacity:.9;text-align:center}
 
-  /* Success */
   .done{text-align:center;padding:20px 12px}
   .check{width:56px;height:56px;margin:8px auto 12px;border-radius:999px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:28px}
 </style>
 </head>
 <body>
+
+<header class="nav">
+  <div class="brand">
+    <img src="logo.png" alt="" onerror="this.style.display='none'">
+    <strong>SecureEscrow</strong>
+  </div>
+  <div style="font-size:13px;color:#0b3a91;opacity:.85">Bank-grade encryption • Global coverage</div>
+</header>
 
 <section class="hero">
   <h1>Never buy or sell online without using escrow</h1>
@@ -96,7 +93,7 @@
         <div class="dot active"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
       </div>
 
-      <!-- Step 0 (Landing) -->
+      <!-- Step 0 -->
       <div class="step active" id="step0">
         <h3 class="section-title">Start a Secure Transaction</h3>
         <p class="muted" style="text-align:center;color:#475569">We’ll guide you through four short steps.</p>
@@ -105,22 +102,35 @@
         </div>
       </div>
 
-      <!-- Step 1 (Role) -->
+      <!-- Step 1: Role & Platform -->
       <div class="step" id="step1">
-        <h3 class="section-title">Choose Your Role</h3>
-        <label for="role">Role</label>
-        <select id="role" required>
-          <option value="">Select role</option>
-          <option>Buyer</option>
-          <option>Seller</option>
-        </select>
+        <h3 class="section-title">Your Role & Platform</h3>
+        <div class="grid-2">
+          <div>
+            <label for="role">Role</label>
+            <select id="role" required>
+              <option value="">Select role</option>
+              <option>Buyer</option>
+              <option>Seller</option>
+            </select>
+          </div>
+          <div>
+            <label for="platform">Platform</label>
+            <select id="platform">
+              <option>Android</option>
+              <option>iOS</option>
+              <option>Web</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
         <div class="nav-row">
           <button class="btn secondary" type="button" data-back>← Back</button>
           <button class="btn" type="button" data-next>Next →</button>
         </div>
       </div>
 
-      <!-- Step 2 (Personal) -->
+      <!-- Step 2: Personal -->
       <div class="step" id="step2">
         <h3 class="section-title">Personal Information</h3>
         <div class="grid-2">
@@ -129,67 +139,82 @@
         </div>
         <label for="email">Email</label><input id="email" type="email" inputmode="email" placeholder="john.doe@example.com" required>
         <label for="phone">Phone (U.S.)</label>
-        <input id="phone" type="tel" inputmode="tel" placeholder="(555) 123-4567" pattern="\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}" required>
+        <input id="phone" type="tel" inputmode="tel" placeholder="(555) 123-4567" pattern="\\(?\\d{3}\\)?[-. ]?\\d{3}[-. ]?\\d{4}" required>
         <div class="nav-row">
           <button class="btn secondary" type="button" data-back>← Back</button>
           <button class="btn" type="button" data-next>Next →</button>
         </div>
       </div>
 
-      <!-- Step 3 (Transaction) -->
-      <!-- Step 3: Transaction (with milestone / down payment) -->
-<div class="step" id="step3">
-  <h3 class="section-title">Transaction Details</h3>
+      <!-- Step 3: Package / Transaction / Milestone -->
+      <div class="step" id="step3">
+        <h3 class="section-title">Transaction Details</h3>
 
-  <label for="itemDetails">Item / Service</label>
-  <textarea id="itemDetails" placeholder="Describe what’s being bought or sold…"></textarea>
+        <label>Choose a Package</label>
+        <div class="grid-3" id="pkgGrid">
+          <label style="border:1px solid var(--line);padding:12px;border-radius:10px;display:block;cursor:pointer">
+            <input type="radio" name="pkg" value="Basic" data-price="99" checked> <b>Basic</b> — $99
+            <div class="meta">Simple escrow, same-day setup</div>
+          </label>
+          <label style="border:1px solid var(--line);padding:12px;border-radius:10px;display:block;cursor:pointer">
+            <input type="radio" name="pkg" value="Standard" data-price="249"> <b>Standard</b> — $249
+            <div class="meta">Milestones + priority email</div>
+          </label>
+          <label style="border:1px solid var(--line);padding:12px;border-radius:10px;display:block;cursor:pointer">
+            <input type="radio" name="pkg" value="Premium" data-price="499"> <b>Premium</b> — $499
+            <div class="meta">Dedicated manager + dispute support</div>
+          </label>
+        </div>
 
-  <div class="grid-2">
-    <div>
-      <label for="amount">Total Amount (USD)</label>
-      <input id="amount" type="number" inputmode="decimal" placeholder="800" required>
-    </div>
-    <div>
-      <label for="paymentPlan">Payment Plan</label>
-      <select id="paymentPlan">
-        <option value="full">Full payment</option>
-        <option value="milestone">Milestone / Down payment</option>
-      </select>
-    </div>
-  </div>
+        <label for="itemDetails" style="margin-top:10px">Item / Service</label>
+        <textarea id="itemDetails" placeholder="Describe what’s being bought or sold…"></textarea>
 
-  <!-- Hidden until "milestone" is chosen -->
-  <div id="downBox" style="display:none; margin-top:8px">
-    <div class="grid-2">
-      <div>
-        <label for="downType">Down Payment Type</label>
-        <select id="downType">
-          <option value="percent">% of total</option>
-          <option value="amount">Fixed amount</option>
-        </select>
+        <div class="grid-2">
+          <div>
+            <label for="amount">Total Amount (USD)</label>
+            <input id="amount" type="number" inputmode="decimal" placeholder="800" required>
+            <div class="meta" style="color:#64748b;font-size:13px">Auto-filled from package, you can override.</div>
+          </div>
+          <div>
+            <label for="paymentPlan">Payment Plan</label>
+            <select id="paymentPlan">
+              <option value="full">Full payment</option>
+              <option value="milestone">Milestone / Down payment</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="downBox" style="display:none">
+          <div class="grid-2">
+            <div>
+              <label for="downType">Down Payment Type</label>
+              <select id="downType">
+                <option value="percent">% of total</option>
+                <option value="amount">Fixed amount</option>
+              </select>
+            </div>
+            <div>
+              <label for="downValue">Down Payment Value</label>
+              <input id="downValue" type="number" inputmode="decimal" placeholder="30">
+            </div>
+          </div>
+          <label for="milestoneNotes">Milestone Notes (optional)</label>
+          <textarea id="milestoneNotes" placeholder="e.g., 30% to start, 70% on delivery (due Sep 30)."></textarea>
+
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px">
+            <input id="refundAgreement" type="checkbox"> I acknowledge the refund policy below.
+          </label>
+          <label for="refundPolicyNote">Refund Policy Note (shown on invoice)</label>
+          <textarea id="refundPolicyNote" placeholder="Refunds available until delivery is confirmed. Exceptions: …"></textarea>
+        </div>
+
+        <div class="nav-row">
+          <button class="btn secondary" type="button" data-back>← Back</button>
+          <button class="btn" type="button" data-next>Next →</button>
+        </div>
       </div>
-      <div>
-        <label for="downValue">Down Payment Value</label>
-        <input id="downValue" type="number" inputmode="decimal" placeholder="30">
-      </div>
-    </div>
 
-    <label for="milestoneNotes">Milestone Notes (optional)</label>
-    <textarea id="milestoneNotes" placeholder="e.g., 30% to start, 70% on delivery (due Sep 30)."></textarea>
-
-    <div style="margin-top:10px;color:#475569;font-size:14px;background:#f1f5f9;border:1px solid #e5e7eb;padding:10px;border-radius:8px">
-      <b>Refund policy:</b> Down payments remain refundable by the buyer until both sides confirm the milestone,
-      or by the deadline stated in the milestone notes. After approval, funds are released to the seller.
-    </div>
-  </div>
-
-  <div class="nav-row">
-    <button class="btn secondary" type="button" data-back>← Back</button>
-    <button class="btn" type="button" data-next>Next →</button>
-  </div>
-</div>
-      
-      <!-- Step 4 (Payment) -->
+      <!-- Step 4: Payment -->
       <div class="step" id="step4">
         <h3 class="section-title">Payment Method</h3>
         <select id="paymentMethod" required>
@@ -203,12 +228,12 @@
         </div>
       </div>
 
-      <!-- Step 5 (Done) -->
+      <!-- Step 5: Done -->
       <div class="step" id="step5">
         <div class="done">
           <div class="check">✓</div>
           <h3 class="section-title">Submission Received</h3>
-          <p class="muted" style="text-align:center;color:#475569">Thanks! We’ve recorded your request and emailed your next steps.</p>
+          <p class="muted" style="text-align:center;color:#475569">Thanks! We’ve recorded your request and emailed your invoice & next steps.</p>
           <div class="nav-row" style="max-width:420px;margin:14px auto 0">
             <a class="btn" href="#" id="backHome">Back to Home</a>
           </div>
@@ -216,7 +241,6 @@
       </div>
     </div>
 
-    <!-- Highlights -->
     <div class="highlights" aria-hidden="true">
       <div class="hl"><div class="icon">🔒</div><div><b>Protected Funds</b><div class="muted">Held securely until both sides confirm.</div></div></div>
       <div class="hl"><div class="icon">📧</div><div><b>Transparent Updates</b><div class="muted">Email at every stage.</div></div></div>
@@ -224,7 +248,6 @@
     </div>
   </section>
 
-  <!-- Reviews -->
   <section class="reviews">
     <h3>What customers say</h3>
     <div class="carousel" id="reviews"></div>
@@ -255,138 +278,127 @@
 </footer>
 
 <script>
-/* ===== Minimal state ===== */
 const S = {
   step: 0,
-  role: "", firstName: "", lastName: "", email: "", phone: "",
+  role: "", platform: "Android",
+  firstName: "", lastName: "", email: "", phone: "",
+  packageName: "Basic", packagePrice: 99,
   itemDetails: "", amount: "", paymentMethod: "",
-  paymentPlan: "full", downType: "percent", downValue: "", milestoneNotes: ""
+  paymentPlan: "full", downType: "percent", downValue: "", milestoneNotes: "",
+  refundAgreement: false, refundPolicyNote: ""
 };
 
-/* ===== Helpers & elements ===== */
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 const steps = [...document.querySelectorAll('.step')];
 const dots  = [...document.querySelectorAll('#dots .dot')];
 
-const roleEl            = $('role');
-const firstNameEl       = $('firstName');
-const lastNameEl        = $('lastName');
-const emailEl           = $('email');
-const phoneEl           = $('phone');
-const itemDetailsEl     = $('itemDetails');
-const amountEl          = $('amount');
-const paymentMethodEl   = $('paymentMethod');
+const roleEl=$('role'), platformEl=$('platform'),
+      firstNameEl=$('firstName'), lastNameEl=$('lastName'),
+      emailEl=$('email'), phoneEl=$('phone'),
+      amountEl=$('amount'), itemDetailsEl=$('itemDetails'),
+      paymentPlanEl=$('paymentPlan'), downBox=$('downBox'),
+      downTypeEl=$('downType'), downValueEl=$('downValue'),
+      milestoneNotesEl=$('milestoneNotes'),
+      refundAgreementEl=$('refundAgreement'), refundPolicyNoteEl=$('refundPolicyNote'),
+      paymentMethodEl=$('paymentMethod');
 
-const paymentPlanEl     = $('paymentPlan');
-const downBoxEl         = $('downBox');
-const downTypeEl        = $('downType');
-const downValueEl       = $('downValue');
-const milestoneNotesEl  = $('milestoneNotes');
-
-/* ===== Step switching ===== */
 function showStep(n){
   S.step = n;
   steps.forEach((el,i)=> el.classList.toggle('active', i===n));
   dots.forEach((d,i)=> d.classList.toggle('active', i < Math.min(4, n===0?1:n)));
 }
-
-$('startBtn')?.addEventListener('click', e => { e.preventDefault(); showStep(1); });
+$('startBtn').addEventListener('click', e => { e.preventDefault(); showStep(1); });
 
 document.body.addEventListener('click', (e)=>{
-  if(e.target.matches('[data-next]')){
-    if(!validateStep(S.step)) return;
-    showStep(Math.min(4, S.step+1));
-  }
-  if(e.target.matches('[data-back]')){
-    showStep(Math.max(0, S.step-1));
+  if(e.target.matches('[data-next]')){ if(!validateStep(S.step)) return; showStep(Math.min(4, S.step+1)); }
+  if(e.target.matches('[data-back]')){ showStep(Math.max(0, S.step-1)); }
+});
+
+paymentPlanEl.addEventListener('change', () => {
+  downBox.style.display = paymentPlanEl.value === 'milestone' ? 'block' : 'none';
+});
+
+// Package cards → set package + price + auto-fill amount
+document.getElementById('pkgGrid').addEventListener('change', (e)=>{
+  if (e.target && e.target.name === 'pkg') {
+    S.packageName = e.target.value;
+    S.packagePrice = Number(e.target.dataset.price || 0);
+    amountEl.value = S.packagePrice;
   }
 });
 
-/* ===== Field logic ===== */
-paymentPlanEl?.addEventListener('change', () => {
-  const useMilestone = paymentPlanEl.value === 'milestone';
-  downBoxEl.style.display = useMilestone ? 'block' : 'none';
-});
-
-/* ===== Validation per step ===== */
 function validateStep(n){
-  // Step 1: role
   if(n===1){
-    const v = roleEl.value.trim();
-    if(!v){ alert('Please select your role.'); return false; }
-    S.role = v; return true;
+    const r = roleEl.value.trim();
+    if(!r){ alert('Please select your role.'); return false; }
+    S.role = r; S.platform = platformEl.value;
+    return true;
   }
-
-  // Step 2: personal
   if(n===2){
-    const f = firstNameEl.value.trim();
-    const l = lastNameEl.value.trim();
-    const e = emailEl.value.trim();
-    const p = phoneEl.value.trim();
+    const f = firstNameEl.value.trim(),
+          l = lastNameEl.value.trim(),
+          e = emailEl.value.trim(),
+          p = phoneEl.value.trim();
     if(!f || !l || !e || !p){ alert('Please complete all fields.'); return false; }
-    S.firstName=f; S.lastName=l; S.email=e; S.phone=p; return true;
+    S.firstName=f; S.lastName=l; S.email=e; S.phone=p;
+    return true;
   }
-
-  // Step 3: transaction
   if(n===3){
     const a = amountEl.value.trim();
     if(!a){ alert('Please enter the total amount.'); return false; }
-    S.itemDetails   = itemDetailsEl.value.trim();
-    S.amount        = a;
-    S.paymentPlan   = paymentPlanEl.value;
-    if(S.paymentPlan === 'milestone'){
-      S.downType       = downTypeEl.value;
-      S.downValue      = (downValueEl.value || '').trim();
-      S.milestoneNotes = (milestoneNotesEl.value || '').trim();
+    S.amount = a;
+    S.itemDetails = itemDetailsEl.value.trim();
+    S.paymentPlan = paymentPlanEl.value;
+    if (S.paymentPlan === 'milestone') {
+      S.downType = downTypeEl.value;
+      S.downValue = downValueEl.value.trim();
+      S.milestoneNotes = milestoneNotesEl.value.trim();
+      S.refundAgreement = !!refundAgreementEl.checked;
+      S.refundPolicyNote = refundPolicyNoteEl.value.trim();
       if(!S.downValue){ alert('Please set the down payment value.'); return false; }
     } else {
-      S.downType = 'percent'; S.downValue = ''; S.milestoneNotes = '';
+      S.downType = 'percent';
+      S.downValue = '';
+      S.milestoneNotes = '';
+      S.refundAgreement = false;
+      S.refundPolicyNote = '';
     }
     return true;
   }
-
-  // Step 4: payment method
   if(n===4){
     const m = paymentMethodEl.value.trim();
     if(!m){ alert('Please choose a payment method.'); return false; }
-    S.paymentMethod = m; return true;
+    S.paymentMethod = m;
+    return true;
   }
-
   return true;
 }
 
-/* ===== Submit to backend ===== */
-$('submitBtn')?.addEventListener('click', async ()=>{
+$('submitBtn').addEventListener('click', async ()=>{
   if(!validateStep(4)) return;
   try{
-    const res = await fetch('/submit',{
+    const res = await fetch('/submit', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(S)
+      body:JSON.stringify(S)
     });
     const out = await res.json();
-    if(out.ok){
-      showStep(5);
-    } else {
-      alert('Error: '+(out.error||'Unknown'));
-    }
-  }catch(err){
-    alert('Network error: '+err.message);
-  }
+    if(out.ok){ showStep(5); }
+    else alert('Error: '+(out.error||'Unknown'));
+  }catch(err){ alert('Network error: '+err.message); }
 });
+$('backHome').addEventListener('click', e=>{ e.preventDefault(); showStep(0); });
 
-/* ===== Reviews carousel ===== */
+// Reviews
 const REVIEWS = [
-  { name:"Maya Chen", text:"Clear updates at each step. Everything felt professional and secure from start to finish." },
-  { name:"Mike Alvarez", text:"Perfect for milestone payments. Fair fees, simple flow, and excellent support." },
-  { name:"Aisha Bello", text:"I was new to escrow but the process was easy. Both parties felt protected." },
-  { name:"Shannon Gaskins", text:"Flawless process. Funds released only after both sides confirmed delivery." },
-  { name:"Williams Roy", text:"Fast setup. Funds were safe until I confirmed receipt. Five stars." }
+  { name:"Maya Chen", text:"Clear updates at each step. Everything felt professional and secure." },
+  { name:"Mike Alvarez", text:"Perfect for milestone payments. Fair fees and great support." },
+  { name:"Aisha Bello", text:"New to escrow but the process was easy. We both felt protected." },
+  { name:"Shannon Gaskins", text:"Funds released only after both sides confirmed delivery." },
+  { name:"Williams Roy", text:"Fast setup. Five stars." }
 ];
-
 function renderReviews(){
-  const root = $('reviews'); if(!root) return;
-  root.innerHTML = '';
+  const root = document.getElementById('reviews'); root.innerHTML='';
   const show = window.innerWidth > 820 ? 3 : 1;
   const start = Math.floor(Date.now()/5000) % REVIEWS.length;
   for(let i=0;i<show;i++){
@@ -400,12 +412,9 @@ function renderReviews(){
     root.appendChild(el);
   }
 }
-renderReviews();
-setInterval(renderReviews, 5000);
-window.addEventListener('resize', renderReviews);
+renderReviews(); setInterval(renderReviews, 5000); window.addEventListener('resize', renderReviews);
 
-/* ===== Footer year ===== */
-$('yr').textContent = new Date().getFullYear();
+document.getElementById('yr').textContent = new Date().getFullYear();
 </script>
 </body>
 </html>
